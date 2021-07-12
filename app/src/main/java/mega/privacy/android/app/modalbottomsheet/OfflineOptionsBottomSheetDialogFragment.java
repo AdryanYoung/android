@@ -77,8 +77,7 @@ public class OfflineOptionsBottomSheetDialogFragment extends BaseBottomSheetDial
         nodeInfo.setMaxWidth(scaleWidthPx(200, outMetrics));
 
         if (nodeOffline != null) {
-            optionInfoText.setText(nodeOffline.isFolder() ? R.string.general_folder_info
-                    : R.string.general_file_info);
+            optionInfoText.setText(R.string.general_info);
 
             if (MimeTypeList.typeForName(nodeOffline.getName()).isVideoReproducible() || MimeTypeList.typeForName(nodeOffline.getName()).isVideo() || MimeTypeList.typeForName(nodeOffline.getName()).isAudio()
                     || MimeTypeList.typeForName(nodeOffline.getName()).isImage() || MimeTypeList.typeForName(nodeOffline.getName()).isPdf()) {
@@ -98,8 +97,7 @@ public class OfflineOptionsBottomSheetDialogFragment extends BaseBottomSheetDial
             if (file.isDirectory()) {
                 nodeInfo.setText(getFileFolderInfo(file));
             } else {
-                long nodeSize = file.length();
-                nodeInfo.setText(String.format("%s . %s", getSizeString(nodeSize), formatLongDateTime(file.lastModified() / 1000)));
+                nodeInfo.setText(getFileInfo(file));
             }
 
             if (file.isFile()) {

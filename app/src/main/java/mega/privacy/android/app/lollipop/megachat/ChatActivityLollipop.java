@@ -124,7 +124,7 @@ import mega.privacy.android.app.lollipop.FolderLinkActivityLollipop;
 import mega.privacy.android.app.lollipop.LoginActivityLollipop;
 import mega.privacy.android.app.lollipop.ManagerActivityLollipop;
 import mega.privacy.android.app.lollipop.PdfViewerActivityLollipop;
-import mega.privacy.android.app.lollipop.PinActivityLollipop;
+import mega.privacy.android.app.activities.PasscodeActivity;
 import mega.privacy.android.app.lollipop.adapters.RotatableAdapter;
 import mega.privacy.android.app.lollipop.controllers.ChatController;
 import mega.privacy.android.app.lollipop.controllers.ContactController;
@@ -198,6 +198,7 @@ import static mega.privacy.android.app.utils.LinksUtil.isMEGALinkAndRequiresTran
 import static mega.privacy.android.app.utils.LogUtil.*;
 import static mega.privacy.android.app.utils.MegaApiUtils.*;
 import static mega.privacy.android.app.utils.MegaNodeUtil.*;
+import static mega.privacy.android.app.utils.StringResourcesUtils.getQuantityString;
 import static mega.privacy.android.app.utils.TextUtil.*;
 import static mega.privacy.android.app.utils.StringResourcesUtils.getTranslatedErrorString;
 import static mega.privacy.android.app.utils.TimeUtils.*;
@@ -206,7 +207,7 @@ import static nz.mega.sdk.MegaApiJava.INVALID_HANDLE;
 import static nz.mega.sdk.MegaApiJava.STORAGE_STATE_PAYWALL;
 import static nz.mega.sdk.MegaChatApiJava.MEGACHAT_INVALID_HANDLE;
 
-public class ChatActivityLollipop extends PinActivityLollipop
+public class ChatActivityLollipop extends PasscodeActivity
         implements MegaChatRequestListenerInterface, MegaRequestListenerInterface,
         MegaChatListenerInterface, MegaChatRoomListenerInterface, View.OnClickListener,
         StoreDataBeforeForward<ArrayList<AndroidMegaChatMessage>>, ChatManagementCallback,
@@ -414,6 +415,8 @@ public class ChatActivityLollipop extends PinActivityLollipop
     private long chatIdBanner;
     private TextView callInProgressText;
     private Chronometer callInProgressChrono;
+    private LinearLayout microOffLayout;
+    private LinearLayout videoOnLayout;
     private boolean startVideo = false;
 
     private EmojiEditText textChat;
@@ -1086,6 +1089,8 @@ public class ChatActivityLollipop extends PinActivityLollipop
         callInProgressText = findViewById(R.id.call_in_progress_text);
         callInProgressChrono = findViewById(R.id.call_in_progress_chrono);
         callInProgressChrono.setVisibility(View.GONE);
+        microOffLayout = findViewById(R.id.micro_off_layout);
+        videoOnLayout = findViewById(R.id.video_on_layout);
 
         returnCallOnHoldButton = findViewById(R.id.call_on_hold_layout);
         returnCallOnHoldButtonIcon = findViewById(R.id.call_on_hold_icon);
@@ -1621,7 +1626,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
     }
 
     public void updateUserNameInChat() {
-        if (chatRoom.isGroup()) {
+        if (chatRoom != null && chatRoom.isGroup()) {
             setChatSubtitle();
         }
         if (adapter != null) {
@@ -2460,7 +2465,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
                         inviteMenuItem.setVisible(false);
                     }
 
-                    contactInfoMenuItem.setTitle(getString(R.string.group_chat_info_label));
+                    contactInfoMenuItem.setTitle(getString(R.string.general_info));
                     contactInfoMenuItem.setVisible(true);
                 }
                 else {
@@ -2472,7 +2477,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
                         videoMenuItem.setVisible(false);
                     } else {
                         clearHistoryMenuItem.setVisible(true);
-                        contactInfoMenuItem.setTitle(getString(R.string.contact_properties_activity));
+                        contactInfoMenuItem.setTitle(getString(R.string.general_info));
                         contactInfoMenuItem.setVisible(true);
                     }
                     leaveMenuItem.setVisible(false);
@@ -3023,7 +3028,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
             if (callInThisChat.getStatus() == MegaChatCall.CALL_STATUS_RING_IN) {
                 logDebug("The call in this chat is Ring in");
                 addChecksForACall(chatRoom.getChatId(), false);
-                MegaApplication.setShowPinScreen(false);
+                MegaApplication.getPasscodeManagement().setShowPasscodeScreen(false);
                 Intent intent = new Intent(this, ChatCallActivity.class);
                 intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
                 intent.putExtra(CHAT_ID, idChat);
@@ -3204,7 +3209,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
 
     public void disablePinScreen(){
         logDebug("disablePinScreen");
-        MegaApplication.setShowPinScreen(false);
+        MegaApplication.getPasscodeManagement().setShowPasscodeScreen(false);
     }
 
     public void showProgressForwarding(){
@@ -3334,7 +3339,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
             ProgressDialog temp = null;
             try{
                 temp = new ProgressDialog(this);
-                temp.setMessage(getString(R.string.upload_prepare));
+                temp.setMessage(getQuantityString(R.plurals.upload_prepare, 1));
                 temp.show();
             }
             catch(Exception e){
@@ -3694,6 +3699,8 @@ public class ChatActivityLollipop extends PinActivityLollipop
     @Override
     public void onBackPressed() {
         logDebug("onBackPressed");
+        if (psaWebBrowser.consumeBack()) return;
+
         retryConnectionsAndSignalPresence();
         if (emojiKeyboard != null && emojiKeyboard.getEmojiKeyboardShown()) {
             emojiKeyboard.hideBothKeyboard(this);
@@ -4728,6 +4735,10 @@ public class ChatActivityLollipop extends PinActivityLollipop
                 false);
     }
 
+    public void saveNodesToGallery(List<MegaNode> nodes) {
+        nodeSaver.saveNodes(nodes, false, false, false, true, true);
+    }
+
     public void showConfirmationDeleteMessages(final ArrayList<AndroidMegaChatMessage> messages, final MegaChatRoom chat){
         logDebug("showConfirmationDeleteMessages");
 
@@ -5193,6 +5204,8 @@ public class ChatActivityLollipop extends PinActivityLollipop
                                             openWith(this, node);
                                         }
                                         overridePendingTransition(0,0);
+                                    } else if (MimeTypeList.typeForName(node.getName()).isOpenableTextFile(node.getSize())) {
+                                        manageTextFileIntent(this, m.getMessage().getMsgId(), idChat);
                                     } else {
                                         logDebug("NOT Image, pdf, audio or video - show node attachment panel for one node");
                                         openWith(this, node);
@@ -8383,7 +8396,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
 
             setNodeAttachmentVisible();
 
-            MegaApplication.setShowPinScreen(true);
+            MegaApplication.getPasscodeManagement().setShowPasscodeScreen(true);
             MegaApplication.setOpenChatId(idChat);
             supportInvalidateOptionsMenu();
 
@@ -8799,6 +8812,8 @@ public class ChatActivityLollipop extends PinActivityLollipop
             callInProgressText.setText(text);
         }
 
+        showHideMicroAndVideoIcons(call, microOffLayout, videoOnLayout);
+
         if (shouldChronoShown) {
             startChronometers(call);
         } else {
@@ -8824,7 +8839,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
             return;
         }
 
-        activateChrono(true, callInProgressChrono, call);
+        activateChrono(true, callInProgressChrono, call, true);
         callInProgressChrono.setOnChronometerTickListener(chronometer -> {
             if (subtitleChronoCall == null) {
                 return;
@@ -9329,15 +9344,22 @@ public class ChatActivityLollipop extends PinActivityLollipop
     }
 
     private void createSpeakerAudioManger(){
-        if(rtcAudioManager != null) return;
-        speakerWasActivated = true;
-        rtcAudioManager = AppRTCAudioManager.create(this, speakerWasActivated, INVALID_CALL_STATUS);
+        rtcAudioManager = app.getAudioManager();
+
+        if(rtcAudioManager == null){
+            speakerWasActivated = true;
+            rtcAudioManager = AppRTCAudioManager.create(this, speakerWasActivated, INVALID_CALL_STATUS);
+        }else{
+            activateSpeaker();
+        }
+
         rtcAudioManager.setOnProximitySensorListener(new OnProximitySensorListener() {
             @Override
             public void needToUpdate(boolean isNear) {
                 if(!speakerWasActivated && !isNear){
                     adapter.pausePlaybackInProgress();
                 }else if(speakerWasActivated && isNear){
+                    adapter.refreshVoiceClipPlayback();
                     speakerWasActivated = false;
                 }
             }
@@ -9353,13 +9375,25 @@ public class ChatActivityLollipop extends PinActivityLollipop
         if(!speakerWasActivated){
             speakerWasActivated = true;
         }
-        if(rtcAudioManager != null){
-            rtcAudioManager.updateSpeakerStatus(true, INVALID_CALL_STATUS);
+
+        if (rtcAudioManager != null) {
+            long chatIdOfCall = getChatCallInProgress();
+            MegaChatCall call = megaChatApi.getChatCall(chatIdOfCall);
+
+            if (call != null && chatIdOfCall != MEGACHAT_INVALID_HANDLE) {
+                if (!MegaApplication.getSpeakerStatus(chatIdOfCall)) {
+                    MegaApplication.setSpeakerStatus(chatIdOfCall, true);
+                    app.updateSpeakerStatus(true, call.getStatus(), chatIdOfCall);
+                }
+            } else {
+                rtcAudioManager.updateSpeakerStatus(true, INVALID_CALL_STATUS);
+            }
         }
     }
 
     public void stopProximitySensor(){
-        if(rtcAudioManager == null) return;
+        if(rtcAudioManager == null || participatingInACall()) return;
+
         activateSpeaker();
         rtcAudioManager.unregisterProximitySensor();
         destroySpeakerAudioManger();
@@ -9586,7 +9620,7 @@ public class ChatActivityLollipop extends PinActivityLollipop
      * Method for opening the Call Activity.
      */
     private void openCall(){
-        MegaApplication.setShowPinScreen(false);
+        MegaApplication.getPasscodeManagement().setShowPasscodeScreen(false);
         Intent i = new Intent(this, ChatCallActivity.class);
         i.putExtra(CHAT_ID, idChat);
         i.setAction(SECOND_CALL);

@@ -41,9 +41,9 @@ import mega.privacy.android.app.listeners.LogoutListener;
 import mega.privacy.android.app.lollipop.FileStorageActivityLollipop;
 import mega.privacy.android.app.lollipop.ManagerActivityLollipop;
 import mega.privacy.android.app.lollipop.MyAccountInfo;
-import mega.privacy.android.app.lollipop.PinLockActivityLollipop;
 import mega.privacy.android.app.lollipop.TestPasswordActivity;
 import mega.privacy.android.app.lollipop.TwoFactorAuthenticationActivity;
+import mega.privacy.android.app.lollipop.VerifyTwoFactorActivity;
 import mega.privacy.android.app.lollipop.managerSections.MyAccountFragmentLollipop;
 import mega.privacy.android.app.sync.BackupToolsKt;
 import mega.privacy.android.app.psa.PsaManager;
@@ -62,6 +62,7 @@ import static mega.privacy.android.app.utils.CameraUploadUtil.*;
 import static mega.privacy.android.app.utils.ContactUtil.notifyFirstNameUpdate;
 import static mega.privacy.android.app.utils.ContactUtil.notifyLastNameUpdate;
 import static mega.privacy.android.app.utils.FileUtil.*;
+import static mega.privacy.android.app.utils.ChatUtil.*;
 import static mega.privacy.android.app.utils.Constants.*;
 import static mega.privacy.android.app.utils.JobUtil.*;
 import static mega.privacy.android.app.utils.LogUtil.*;
@@ -101,7 +102,10 @@ public class AccountController {
     public void deleteAccount(){
         logDebug("deleteAccount");
         if (((ManagerActivityLollipop) context).is2FAEnabled()){
-            ((ManagerActivityLollipop) context).showVerifyPin2FA(CANCEL_ACCOUNT_2FA);
+            Intent intent = new Intent(context, VerifyTwoFactorActivity.class);
+            intent.putExtra(VerifyTwoFactorActivity.KEY_VERIFY_TYPE, CANCEL_ACCOUNT_2FA);
+
+            context.startActivity(intent);
         }
         else {
             megaApi.cancelAccount((ManagerActivityLollipop) context);
@@ -485,6 +489,8 @@ public class AccountController {
         //clear push token
         context.getSharedPreferences(PUSH_TOKEN, Context.MODE_PRIVATE).edit().clear().apply();
 
+        removeEmojisSharedPreferences();
+
         new LastShowSMSDialogTimeChecker(context).reset();
         MediaPlayerService.stopAudioPlayer(context);
         MediaPlayerServiceViewModel.clearSettings(context);
@@ -493,7 +499,7 @@ public class AccountController {
 
         //Clear MyAccountInfo
         MegaApplication app = MegaApplication.getInstance();
-        app.getMyAccountInfo().clear();
+        app.resetMyAccountInfo();
         app.setStorageState(MegaApiJava.STORAGE_STATE_UNKNOWN);
 
         // Clear get banner success flag
@@ -518,19 +524,13 @@ public class AccountController {
             megaApi = MegaApplication.getInstance().getMegaApi();
         }
 
-        if (context instanceof ManagerActivityLollipop){
-            megaApi.logout((ManagerActivityLollipop)context);
-        }
-        else if (context instanceof OpenLinkActivity){
-            megaApi.logout((OpenLinkActivity)context);
-        }
-        else if (context instanceof PinLockActivityLollipop){
-            megaApi.logout((PinLockActivityLollipop)context);
-        }
-        else if (context instanceof TestPasswordActivity){
-            megaApi.logout(((TestPasswordActivity)context));
-        }
-        else{
+        if (context instanceof ManagerActivityLollipop) {
+            megaApi.logout((ManagerActivityLollipop) context);
+        } else if (context instanceof OpenLinkActivity) {
+            megaApi.logout((OpenLinkActivity) context);
+        } else if (context instanceof TestPasswordActivity) {
+            megaApi.logout(((TestPasswordActivity) context));
+        } else {
             megaApi.logout(new LogoutListener(context));
         }
 
@@ -582,8 +582,11 @@ public class AccountController {
         if(!oldMail.equals(newMail)){
             logDebug("Changes in mail, new mail: " + newMail);
             if (((ManagerActivityLollipop) context).is2FAEnabled()){
-                ((ManagerActivityLollipop) context).setNewMail(newMail);
-                ((ManagerActivityLollipop) context).showVerifyPin2FA(CHANGE_MAIL_2FA);
+                Intent intent = new Intent(context, VerifyTwoFactorActivity.class);
+                intent.putExtra(VerifyTwoFactorActivity.KEY_VERIFY_TYPE, CHANGE_MAIL_2FA);
+                intent.putExtra(VerifyTwoFactorActivity.KEY_NEW_EMAIL, newMail);
+
+                context.startActivity(intent);
             }
             else {
                 megaApi.changeEmail(newMail, (ManagerActivityLollipop)context);

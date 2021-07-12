@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
 import android.graphics.Color
+import android.graphics.PixelFormat
 import android.os.Bundle
 import android.os.IBinder
 import android.view.Menu
@@ -21,10 +22,10 @@ import androidx.navigation.fragment.NavHostFragment
 import com.google.android.exoplayer2.util.Util.startForegroundService
 import com.jeremyliao.liveeventbus.LiveEventBus
 import dagger.hilt.android.AndroidEntryPoint
-import mega.privacy.android.app.BaseActivity
 import mega.privacy.android.app.MimeTypeList
 import mega.privacy.android.app.R
 import mega.privacy.android.app.activities.OfflineFileInfoActivity
+import mega.privacy.android.app.activities.PasscodeActivity
 import mega.privacy.android.app.components.attacher.MegaAttacher
 import mega.privacy.android.app.components.dragger.DragToExitSupport
 import mega.privacy.android.app.components.saver.NodeSaver
@@ -53,8 +54,8 @@ import mega.privacy.android.app.utils.Constants.*
 import mega.privacy.android.app.utils.FileUtil.shareUri
 import mega.privacy.android.app.utils.LogUtil.logDebug
 import mega.privacy.android.app.utils.LogUtil.logError
-import mega.privacy.android.app.utils.MegaNodeDialogUtil.Companion.moveToRubbishOrRemove
-import mega.privacy.android.app.utils.MegaNodeDialogUtil.Companion.showRenameNodeDialog
+import mega.privacy.android.app.utils.MegaNodeDialogUtil.moveToRubbishOrRemove
+import mega.privacy.android.app.utils.MegaNodeDialogUtil.showRenameNodeDialog
 import mega.privacy.android.app.utils.MegaNodeUtil.handleSelectFolderToImportResult
 import mega.privacy.android.app.utils.MegaNodeUtil.selectFolderToCopy
 import mega.privacy.android.app.utils.MegaNodeUtil.selectFolderToMove
@@ -63,6 +64,7 @@ import mega.privacy.android.app.utils.MegaNodeUtil.shareNode
 import mega.privacy.android.app.utils.MegaNodeUtil.showShareOption
 import mega.privacy.android.app.utils.MegaNodeUtil.showTakenDownAlert
 import mega.privacy.android.app.utils.MegaNodeUtil.showTakenDownNodeActionNotAvailableDialog
+import mega.privacy.android.app.utils.MenuUtils.toggleAllMenuItemsVisibility
 import mega.privacy.android.app.utils.RunOnUIThreadUtils.post
 import mega.privacy.android.app.utils.RunOnUIThreadUtils.runDelay
 import nz.mega.sdk.*
@@ -70,7 +72,7 @@ import nz.mega.sdk.MegaApiJava.INVALID_HANDLE
 import javax.inject.Inject
 
 @AndroidEntryPoint
-abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLauncher {
+abstract class MediaPlayerActivity : PasscodeActivity(), SnackbarShower, ActivityLauncher {
 
     @MegaApi
     @Inject
@@ -167,7 +169,6 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
             rootLayout = binding.rootLayout
             toolbar = binding.toolbar
 
-            toolbar.setBackgroundColor(Color.TRANSPARENT)
             toolbar.setTitleTextColor(ContextCompat.getColor(this, R.color.white_alpha_087))
 
             MediaPlayerService.pauseAudioPlayer(this)
@@ -175,6 +176,8 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
             dragToExit.viewerFrom = intent.getIntExtra(INTENT_EXTRA_KEY_VIEWER_FROM, INVALID_VALUE)
             dragToExit.observeThumbnailLocation(this)
         }
+
+        toolbar.setBackgroundColor(Color.TRANSPARENT)
 
         val navHostFragment =
             supportFragmentManager.findFragmentById(R.id.nav_host_fragment) as NavHostFragment
@@ -242,6 +245,14 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
         refreshMenuOptionsVisibility()
     }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+
+        if (isAudioPlayer()) {
+            window.setFormat(PixelFormat.RGBA_8888) // Needed to fix bg gradient banding
+        }
+    }
+
     abstract fun isAudioPlayer(): Boolean
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -269,6 +280,7 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
     }
 
     override fun onBackPressed() {
+        if (psaWebBrowser.consumeBack()) return
         if (!navController.navigateUp()) {
             finish()
         }
@@ -285,10 +297,8 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
                 )
 
                 window.statusBarColor = color
-                toolbar.setBackgroundColor(color)
             } else {
                 window.statusBarColor = Color.BLACK
-                toolbar.setBackgroundColor(Color.TRANSPARENT)
             }
 
             when (dest.id) {
@@ -370,12 +380,6 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
         return true
     }
 
-    private fun toggleAllMenuItemsVisibility(menu: Menu, visible: Boolean) {
-        for (i in 0 until menu.size()) {
-            menu.getItem(i).isVisible = visible
-        }
-    }
-
     private fun refreshMenuOptionsVisibility() {
         val menu = optionsMenu
         if (menu == null) {
@@ -393,7 +397,7 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
         if (service == null) {
             logDebug("refreshMenuOptionsVisibility null service")
 
-            toggleAllMenuItemsVisibility(menu, false)
+            menu.toggleAllMenuItemsVisibility(false)
             return
         }
 
@@ -403,18 +407,18 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
         if (adapterType == null) {
             logDebug("refreshMenuOptionsVisibility null adapterType")
 
-            toggleAllMenuItemsVisibility(menu, false)
+            menu.toggleAllMenuItemsVisibility(false)
             return
         }
 
         when (currentFragment) {
             R.id.playlist -> {
-                toggleAllMenuItemsVisibility(menu, false)
+                menu.toggleAllMenuItemsVisibility(false)
                 searchMenuItem?.isVisible = true
             }
             R.id.main_player, R.id.track_info -> {
                 if (adapterType == OFFLINE_ADAPTER) {
-                    toggleAllMenuItemsVisibility(menu, false)
+                    menu.toggleAllMenuItemsVisibility(false)
 
                     menu.findItem(R.id.properties).isVisible =
                         currentFragment == R.id.main_player
@@ -428,7 +432,7 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
                 if (adapterType == RUBBISH_BIN_ADAPTER
                     || megaApi.isInRubbish(megaApi.getNodeByHandle(service.viewModel.playingHandle))
                 ) {
-                    toggleAllMenuItemsVisibility(menu, false)
+                    menu.toggleAllMenuItemsVisibility(false)
 
                     menu.findItem(R.id.properties).isVisible =
                         currentFragment == R.id.main_player
@@ -441,7 +445,7 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
                 }
 
                 if (adapterType == FROM_CHAT) {
-                    toggleAllMenuItemsVisibility(menu, false)
+                    menu.toggleAllMenuItemsVisibility(false)
 
                     menu.findItem(R.id.save_to_device).isVisible = true
                     menu.findItem(R.id.chat_import).isVisible = true
@@ -470,7 +474,7 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
                 }
 
                 if (adapterType == FILE_LINK_ADAPTER || adapterType == ZIP_ADAPTER) {
-                    toggleAllMenuItemsVisibility(menu, false)
+                    menu.toggleAllMenuItemsVisibility(false)
 
                     menu.findItem(R.id.save_to_device).isVisible = true
                     menu.findItem(R.id.share).isVisible = true
@@ -479,7 +483,7 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
                 }
 
                 if (adapterType == FOLDER_LINK_ADAPTER) {
-                    toggleAllMenuItemsVisibility(menu, false)
+                    menu.toggleAllMenuItemsVisibility(false)
 
                     menu.findItem(R.id.save_to_device).isVisible = true
 
@@ -490,11 +494,11 @@ abstract class MediaPlayerActivity : BaseActivity(), SnackbarShower, ActivityLau
                 if (node == null) {
                     logDebug("refreshMenuOptionsVisibility node is null")
 
-                    toggleAllMenuItemsVisibility(menu, false)
+                    menu.toggleAllMenuItemsVisibility(false)
                     return
                 }
 
-                toggleAllMenuItemsVisibility(menu, true)
+                menu.toggleAllMenuItemsVisibility(true)
                 searchMenuItem?.isVisible = false
 
                 menu.findItem(R.id.save_to_device).isVisible = true

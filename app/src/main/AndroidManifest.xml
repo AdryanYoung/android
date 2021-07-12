@@ -50,7 +50,8 @@
         android:requestLegacyExternalStorage="true"
         android:roundIcon="@mipmap/ic_launcher_mega_round"
         android:theme="@style/Theme.Mega"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        android:screenOrientation="fullUser">
 
         <meta-data
             android:name="fontProviderRequests"
@@ -194,7 +195,7 @@
             android:label="@string/app_name">
         </activity>
 
-        <activity android:name="mega.privacy.android.app.providers.PinFileProviderActivity"
+        <activity android:name="mega.privacy.android.app.providers.PasscodeFileProviderActivity"
             android:label="@string/app_name">
         </activity>
 
@@ -285,15 +286,10 @@
         </activity>
 
         <activity
-            android:name="mega.privacy.android.app.lollipop.SearchByDateActivityLollipop"
-            android:label="@string/action_search_by_date">
-        </activity>
-
-        <activity
-            android:name="mega.privacy.android.app.lollipop.PinLockActivityLollipop"
-            android:label="@string/settings_pin_lock"
-            android:windowSoftInputMode="adjustResize|stateVisible">
-        </activity>
+            android:name="mega.privacy.android.app.activities.settingsActivities.PasscodeLockActivity"
+            android:label="@string/settings_passcode_lock"
+            android:launchMode="singleInstance"
+            android:windowSoftInputMode="adjustResize|stateVisible"/>
 
         <activity
             android:name="mega.privacy.android.app.lollipop.ZipBrowserActivityLollipop"
@@ -405,6 +401,11 @@
         </activity>
 
         <activity
+            android:name="mega.privacy.android.app.lollipop.VerifyTwoFactorActivity"
+            android:label="@string/app_name">
+        </activity>
+
+        <activity
             android:name="mega.privacy.android.app.BusinessExpiredAlertActivity"
             android:label="@string/app_name">
         </activity>
@@ -458,9 +459,8 @@
 
         <activity
             android:name="mega.privacy.android.app.activities.settingsActivities.PasscodePreferencesActivity"
-            android:label="@string/settings_pin_lock_switch"
-            android:launchMode="singleTop">
-        </activity>
+            android:label="@string/settings_passcode_lock_switch"
+            android:launchMode="singleTop"/>
 
         <activity
             android:name="mega.privacy.android.app.activities.settingsActivities.CookiePreferencesActivity"
@@ -497,6 +497,11 @@
 
         <activity
             android:name="mega.privacy.android.app.activities.GiphyViewerActivity"
+            android:launchMode="singleTop">
+        </activity>
+
+        <activity
+            android:name="mega.privacy.android.app.textFileEditor.TextFileEditorActivity"
             android:launchMode="singleTop">
         </activity>
 
@@ -608,8 +613,7 @@
 
             <meta-data
                 android:name="android.support.PARENT_ACTIVITY"
-                android:value="mega.privacy.android.app.lollipop.PinActivityLollipop" />
-
+                android:value="mega.privacy.android.app.activities.PasscodeActivity" />
         </activity>
 
         <activity
@@ -624,6 +628,17 @@
             android:screenOrientation="sensorPortrait"
             android:theme="@style/DocumentScannerTheme"
             android:windowSoftInputMode="stateHidden|adjustNothing"/>
+
+        <receiver android:name=".psa.AlarmReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.checking.psa" />
+            </intent-filter>
+        </receiver>
+
+        <activity
+            android:name=".activities.AskForDisplayOverActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar.Fullscreen"
+            android:launchMode="singleTask"/>
 
     </application>
 

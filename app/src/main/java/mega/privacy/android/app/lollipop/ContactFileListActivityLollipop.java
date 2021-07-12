@@ -44,6 +44,7 @@ import mega.privacy.android.app.MimeTypeList;
 import mega.privacy.android.app.R;
 import mega.privacy.android.app.ShareInfo;
 import mega.privacy.android.app.UploadService;
+import mega.privacy.android.app.activities.PasscodeActivity;
 import mega.privacy.android.app.components.saver.NodeSaver;
 import mega.privacy.android.app.interfaces.SnackbarShower;
 import mega.privacy.android.app.interfaces.ActionNodeCallback;
@@ -77,14 +78,18 @@ import static mega.privacy.android.app.constants.BroadcastConstants.*;
 import static mega.privacy.android.app.utils.AlertsAndWarnings.showOverDiskQuotaPaywallWarning;
 import static mega.privacy.android.app.utils.Constants.*;
 import static mega.privacy.android.app.utils.LogUtil.*;
+import static mega.privacy.android.app.utils.MegaNodeDialogUtil.IS_NEW_TEXT_FILE_SHOWN;
+import static mega.privacy.android.app.utils.MegaNodeDialogUtil.NEW_TEXT_FILE_TEXT;
+import static mega.privacy.android.app.utils.MegaNodeDialogUtil.checkNewTextFileDialogState;
 import static mega.privacy.android.app.utils.PermissionUtils.*;
 import static mega.privacy.android.app.utils.ProgressDialogUtil.*;
+import static mega.privacy.android.app.utils.StringResourcesUtils.getQuantityString;
 import static mega.privacy.android.app.utils.Util.*;
 import static mega.privacy.android.app.utils.ContactUtil.*;
 import static mega.privacy.android.app.utils.UploadUtil.*;
 import static nz.mega.sdk.MegaApiJava.STORAGE_STATE_PAYWALL;
 
-public class ContactFileListActivityLollipop extends PinActivityLollipop
+public class ContactFileListActivityLollipop extends PasscodeActivity
 		implements MegaGlobalListenerInterface, MegaRequestListenerInterface,
 		UploadBottomSheetDialogActionListener, ActionNodeCallback, SnackbarShower {
 
@@ -133,6 +138,8 @@ public class ContactFileListActivityLollipop extends PinActivityLollipop
 
 	private BottomSheetDialogFragment bottomSheetDialogFragment;
 
+	private AlertDialog newTextFileDialog;
+
 	private BroadcastReceiver manageShareReceiver = new BroadcastReceiver() {
 		@Override
 		public void onReceive(Context context, Intent intent) {
@@ -165,11 +172,10 @@ public class ContactFileListActivityLollipop extends PinActivityLollipop
 
 	@Override
 	public void onSaveInstanceState(Bundle outState) {
-		logDebug("onSaveInstanceState");
-		super.onSaveInstanceState(outState);
 		outState.putLong(PARENT_HANDLE, parentHandle);
-
+		checkNewTextFileDialogState(newTextFileDialog, outState);
 		nodeSaver.saveState(outState);
+		super.onSaveInstanceState(outState);
 	}
 
 	@Override
@@ -245,6 +251,12 @@ public class ContactFileListActivityLollipop extends PinActivityLollipop
 	@Override
 	public void showNewFolderDialog() {
 		newFolderDialog = MegaNodeDialogUtil.showNewFolderDialog(this, this);
+	}
+
+	@Override
+	public void showNewTextFileDialog(String typedName) {
+		newTextFileDialog = MegaNodeDialogUtil.showNewTxtFileDialog(this,
+				megaApi.getNodeByHandle(parentHandle), typedName, false);
 	}
 
 	@Override
@@ -440,6 +452,10 @@ public class ContactFileListActivityLollipop extends PinActivityLollipop
 
 			getSupportFragmentManager().beginTransaction().replace(R.id.fragment_container_contact_properties, cflF, "cflF").commitNow();
 			coordinatorLayout.invalidate();
+
+			if (savedInstanceState != null && savedInstanceState.getBoolean(IS_NEW_TEXT_FILE_SHOWN, false)) {
+				showNewTextFileDialog(savedInstanceState.getString(NEW_TEXT_FILE_TEXT));
+			}
 		}
 	}
 
@@ -693,7 +709,7 @@ public class ContactFileListActivityLollipop extends PinActivityLollipop
 			ProgressDialog temp = null;
 			try {
 				temp = new ProgressDialog(this);
-				temp.setMessage(getString(R.string.upload_prepare));
+				temp.setMessage(getQuantityString(R.plurals.upload_prepare, 1));
 				temp.show();
 			} catch (Exception e) {
 				return;
@@ -788,7 +804,8 @@ public class ContactFileListActivityLollipop extends PinActivityLollipop
                 if (StringResourcesUtils.getString(R.string.section_chat).equals(savedDestination)) {
                     fileIntent.setAction(FileExplorerActivityLollipop.ACTION_UPLOAD_TO_CHAT);
                 } else {
-                    fileIntent.setAction(FileExplorerActivityLollipop.ACTION_UPLOAD_TO_CLOUD);
+                    fileIntent.setAction(FileExplorerActivityLollipop.ACTION_SAVE_TO_CLOUD);
+					fileIntent.putExtra(FileExplorerActivityLollipop.EXTRA_PARENT_HANDLE, getParentHandle());
                 }
                 fileIntent.putExtra(Intent.EXTRA_STREAM, intent.getData());
                 fileIntent.setType(intent.getType());
@@ -834,6 +851,7 @@ public class ContactFileListActivityLollipop extends PinActivityLollipop
 
 	@Override
 	public void onBackPressed() {
+		if (psaWebBrowser.consumeBack()) return;
 		retryConnectionsAndSignalPresence();
 
 		if (cflF != null && cflF.isVisible() && cflF.onBackPressed() == 0) {

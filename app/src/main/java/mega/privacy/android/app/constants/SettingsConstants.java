@@ -11,7 +11,7 @@ public class SettingsConstants {
     public static final String KEY_STORAGE_FILE_MANAGEMENT = "settings_storage_file_management";
     public static final String CATEGORY_SECURITY = "settings_security";
     public static final String KEY_RECOVERY_KEY = "settings_recovery_key";
-    public static final String KEY_PIN_LOCK = "settings_pin_lock";
+    public static final String KEY_PASSCODE_LOCK = "settings_passcode_lock";
     public static final String KEY_CHANGE_PASSWORD = "settings_change_password";
     public static final String KEY_2FA = "settings_2fa_activated";
     public static final String KEY_QR_CODE_AUTO_ACCEPT = "settings_qrcode_autoaccept";
@@ -28,6 +28,9 @@ public class SettingsConstants {
     public static final String KEY_ABOUT_KARERE_VERSION = "settings_about_karere_version";
     public static final String KEY_ABOUT_APP_VERSION = "settings_about_app_version";
     public static final String KEY_CANCEL_ACCOUNT = "settings_about_cancel_account";
+    public static final String KEY_AUDIO_BACKGROUND_PLAY_ENABLED = "settings_audio_background_play_enabled";
+    public static final String KEY_AUDIO_SHUFFLE_ENABLED = "settings_audio_shuffle_enabled";
+    public static final String KEY_AUDIO_REPEAT_MODE = "settings_audio_repeat_mode";
 
     /* CU settings */
     public static final String KEY_CAMERA_UPLOAD_ON_OFF = "settings_camera_upload_on_off";
@@ -94,8 +97,9 @@ public class SettingsConstants {
     public static final String KEY_AUTO_PLAY_SWITCH = "auto_play_switch";
 
     /* PassCode Lock settings */
-    public static final String KEY_PIN_LOCK_ENABLE = "settings_pin_lock_enable";
-    public static final String KEY_PIN_LOCK_CODE = "settings_pin_lock_code";
+    public static final String KEY_PASSCODE_ENABLE = "settings_passcode_enable";
+    public static final String KEY_RESET_PASSCODE = "settings_change_passcode";
+    public static final String KEY_REQUIRE_PASSCODE = "settings_require_passcode";
 
     /* Advance settings  */
     public static final String KEY_HTTPS_ONLY = "settings_use_https_only";

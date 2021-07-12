@@ -7,8 +7,6 @@ import android.app.NotificationManager;
 import android.app.ProgressDialog;
 import android.app.SearchManager;
 import android.content.BroadcastReceiver;
-import android.content.ClipData;
-import android.content.ClipboardManager;
 import android.content.ComponentCallbacks2;
 import android.content.Context;
 import android.content.DialogInterface;
@@ -25,12 +23,12 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
 import android.provider.ContactsContract;
 import android.text.TextUtils;
 import androidx.annotation.NonNull;
 import androidx.core.content.res.ResourcesCompat;
+import androidx.lifecycle.Observer;
 import androidx.navigation.NavOptions;
 import com.google.android.material.appbar.MaterialToolbar;
 import androidx.core.text.HtmlCompat;
@@ -82,12 +80,10 @@ import android.view.MenuItem;
 import android.view.View;
 import android.view.View.OnClickListener;
 import android.view.ViewGroup;
-import android.view.Window;
 import android.view.WindowManager;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
-import android.widget.CheckedTextView;
 import android.widget.Chronometer;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -97,7 +93,6 @@ import android.widget.RelativeLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.TextView.OnEditorActionListener;
-import android.widget.Toast;
 
 import com.ittianyu.bottomnavigationviewex.BottomNavigationViewEx;
 import com.jeremyliao.liveeventbus.LiveEventBus;
@@ -110,6 +105,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Locale;
@@ -128,19 +124,18 @@ import mega.privacy.android.app.MegaContactAdapter;
 import mega.privacy.android.app.MegaContactDB;
 import mega.privacy.android.app.MegaOffline;
 import mega.privacy.android.app.MegaPreferences;
-import mega.privacy.android.app.MimeTypeList;
 import mega.privacy.android.app.OpenPasswordLinkActivity;
 import mega.privacy.android.app.Product;
 import mega.privacy.android.app.R;
 import mega.privacy.android.app.SMSVerificationActivity;
 import mega.privacy.android.app.ShareInfo;
-import mega.privacy.android.app.SorterContentActivity;
+import mega.privacy.android.app.TransfersManagementActivity;
 import mega.privacy.android.app.UploadService;
 import mega.privacy.android.app.UserCredentials;
+import mega.privacy.android.app.fragments.managerFragments.cu.CustomHideBottomViewOnScrollBehaviour;
 import mega.privacy.android.app.mediaplayer.miniplayer.MiniAudioPlayerController;
 import mega.privacy.android.app.activities.WebViewActivity;
 import mega.privacy.android.app.components.CustomViewPager;
-import mega.privacy.android.app.components.EditTextPIN;
 import mega.privacy.android.app.components.RoundedImageView;
 import mega.privacy.android.app.components.attacher.MegaAttacher;
 import mega.privacy.android.app.components.saver.NodeSaver;
@@ -154,6 +149,7 @@ import mega.privacy.android.app.fragments.homepage.main.HomepageFragmentDirectio
 import mega.privacy.android.app.fragments.managerFragments.LinksFragment;
 import mega.privacy.android.app.activities.OfflineFileInfoActivity;
 import mega.privacy.android.app.fragments.offline.OfflineFragment;
+import mega.privacy.android.app.globalmanagement.SortOrderManagement;
 import mega.privacy.android.app.interfaces.ActionNodeCallback;
 import mega.privacy.android.app.fragments.managerFragments.cu.CameraUploadsFragment;
 import mega.privacy.android.app.interfaces.SnackbarShower;
@@ -268,9 +264,14 @@ import nz.mega.sdk.MegaUser;
 import nz.mega.sdk.MegaUserAlert;
 import nz.mega.sdk.MegaUtilsAndroid;
 
+import static android.content.res.Configuration.ORIENTATION_PORTRAIT;
+import static mega.privacy.android.app.modalbottomsheet.UploadBottomSheetDialogFragment.GENERAL_UPLOAD;
+import static mega.privacy.android.app.modalbottomsheet.UploadBottomSheetDialogFragment.HOMEPAGE_UPLOAD;
+import static mega.privacy.android.app.utils.MegaNodeDialogUtil.IS_NEW_TEXT_FILE_SHOWN;
+import static mega.privacy.android.app.utils.MegaNodeDialogUtil.NEW_TEXT_FILE_TEXT;
+import static mega.privacy.android.app.utils.MegaNodeDialogUtil.checkNewTextFileDialogState;
+import static mega.privacy.android.app.utils.ConstantsUrl.RECOVERY_URL;
 import static mega.privacy.android.app.utils.MegaNodeDialogUtil.showRenameNodeDialog;
-import static mega.privacy.android.app.service.PlatformConstantsKt.RATE_APP_URL;
-import static mega.privacy.android.app.sync.BackupToolsKt.initCuSync;
 import static mega.privacy.android.app.utils.OfflineUtils.*;
 import static mega.privacy.android.app.constants.BroadcastConstants.*;
 import static mega.privacy.android.app.constants.IntentConstants.*;
@@ -278,6 +279,7 @@ import static mega.privacy.android.app.utils.AlertsAndWarnings.showOverDiskQuota
 import static mega.privacy.android.app.utils.ChatUtil.*;
 import static mega.privacy.android.app.utils.ColorUtils.tintIcon;
 import static mega.privacy.android.app.utils.PermissionUtils.*;
+import static mega.privacy.android.app.utils.StringResourcesUtils.getQuantityString;
 import static mega.privacy.android.app.utils.TextUtil.isTextEmpty;
 import static mega.privacy.android.app.utils.billing.PaymentUtils.*;
 import static mega.privacy.android.app.lollipop.FileInfoActivityLollipop.NODE_HANDLE;
@@ -305,11 +307,10 @@ import static nz.mega.sdk.MegaApiJava.*;
 import static nz.mega.sdk.MegaChatApiJava.MEGACHAT_INVALID_HANDLE;
 
 @AndroidEntryPoint
-public class ManagerActivityLollipop extends SorterContentActivity
+public class ManagerActivityLollipop extends TransfersManagementActivity
 		implements MegaRequestListenerInterface, MegaChatListenerInterface,
 		MegaChatRequestListenerInterface, OnNavigationItemSelectedListener,
 		MegaGlobalListenerInterface, MegaTransferListenerInterface, OnClickListener,
-		View.OnFocusChangeListener, View.OnLongClickListener,
 		BottomNavigationView.OnNavigationItemSelectedListener, UploadBottomSheetDialogActionListener,
 		BillingUpdatesListener, ChatManagementCallback, ActionNodeCallback, SnackbarShower {
 
@@ -324,10 +325,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
     private static final String BUSINESS_GRACE_ALERT_SHOWN = "BUSINESS_GRACE_ALERT_SHOWN";
 	private static final String BUSINESS_CU_ALERT_SHOWN = "BUSINESS_CU_ALERT_SHOWN";
-	private static final String BUSINESS_CU_FRAGMENT = "BUSINESS_CU_FRAGMENT";
 	public static final String BUSINESS_CU_FRAGMENT_SETTINGS = "BUSINESS_CU_FRAGMENT_SETTINGS";
 	public static final String BUSINESS_CU_FRAGMENT_CU = "BUSINESS_CU_FRAGMENT_CU";
-	private static final String BUSINESS_CU_FIRST_TIME = "BUSINESS_CU_FIRST_TIME";
 
 	private static final String DEEP_BROWSER_TREE_LINKS = "DEEP_BROWSER_TREE_LINKS";
     private static final String PARENT_HANDLE_LINKS = "PARENT_HANDLE_LINKS";
@@ -335,6 +334,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
     public static final String JOINING_CHAT_LINK = "JOINING_CHAT_LINK";
     public static final String LINK_JOINING_CHAT_LINK = "LINK_JOINING_CHAT_LINK";
     public static final String CONNECTED = "CONNECTED";
+
+    private static final String SMALL_GRID = "SMALL_GRID";
 
 	public static final int ERROR_TAB = -1;
 	public static final int INCOMING_TAB = 0;
@@ -370,6 +371,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 	@Inject
 	CookieDialogHandler cookieDialogHandler;
+	@Inject
+	SortOrderManagement sortOrderManagement;
 
 	public int accountFragment;
 
@@ -404,8 +407,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private final MegaAttacher nodeAttacher = new MegaAttacher(this);
 	private final NodeSaver nodeSaver = new NodeSaver(this, this, this,
 			AlertsAndWarnings.showSaveToDeviceConfirmDialog(this));
-
-	long[] searchDate = null;
 
 	private AndroidCompletedTransfer selectedTransfer;
 	MegaNode selectedNode;
@@ -478,7 +479,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private List<MegaSku> mSkuDetailsList;
 
 	public enum FragmentTag {
-		CLOUD_DRIVE, HOMEPAGE, CAMERA_UPLOADS, MEDIA_UPLOADS, INBOX, INCOMING_SHARES, OUTGOING_SHARES, CONTACTS, RECEIVED_REQUESTS, SENT_REQUESTS, SETTINGS, MY_ACCOUNT, MY_STORAGE, SEARCH, TRANSFERS, COMPLETED_TRANSFERS, RECENT_CHAT, RUBBISH_BIN, NOTIFICATIONS, UPGRADE_ACCOUNT, TURN_ON_NOTIFICATIONS, EXPORT_RECOVERY_KEY, PERMISSIONS, SMS_VERIFICATION, LINKS;
+		CLOUD_DRIVE, HOMEPAGE, CAMERA_UPLOADS, INBOX, INCOMING_SHARES, OUTGOING_SHARES, CONTACTS, RECEIVED_REQUESTS, SENT_REQUESTS, SETTINGS, MY_ACCOUNT, MY_STORAGE, SEARCH, TRANSFERS, COMPLETED_TRANSFERS, RECENT_CHAT, RUBBISH_BIN, NOTIFICATIONS, UPGRADE_ACCOUNT, TURN_ON_NOTIFICATIONS, EXPORT_RECOVERY_KEY, PERMISSIONS, SMS_VERIFICATION, LINKS;
 
 		public String getTag () {
 			switch (this) {
@@ -486,7 +487,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				case HOMEPAGE: return "fragmentHomepage";
 				case RUBBISH_BIN: return "rubbishBinFLol";
 				case CAMERA_UPLOADS: return "cuFLol";
-				case MEDIA_UPLOADS: return "muFLol";
 				case INBOX: return "iFLol";
 				case INCOMING_SHARES: return "isF";
 				case OUTGOING_SHARES: return "osF";
@@ -515,7 +515,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	public enum DrawerItem {
 		CLOUD_DRIVE, CAMERA_UPLOADS, HOMEPAGE, CHAT, SHARED_ITEMS,
 		ACCOUNT, CONTACTS, NOTIFICATIONS, SETTINGS,
-		INBOX, SEARCH, TRANSFERS, MEDIA_UPLOADS, RUBBISH_BIN,
+		INBOX, SEARCH, TRANSFERS, RUBBISH_BIN,
 		ASK_PERMISSIONS;
 
 		public String getTitle(Context context) {
@@ -532,7 +532,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				case ACCOUNT: return context.getString(R.string.section_account);
 				case SEARCH: return context.getString(R.string.action_search);
 				case TRANSFERS: return context.getString(R.string.section_transfers);
-				case MEDIA_UPLOADS: return context.getString(R.string.section_secondary_media_uploads);
 				case CHAT: return context.getString(R.string.section_chat);
 				case RUBBISH_BIN: return context.getString(R.string.section_rubbish_bin);
 				case NOTIFICATIONS: return context.getString(R.string.title_properties_chat_contact_notifications);
@@ -562,7 +561,16 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 	private MiniAudioPlayerController miniAudioPlayerController;
 
-    //Tabs in Shares
+	private LinearLayout cuViewTypes;
+	private TextView cuYearsButton;
+	private TextView cuMonthsButton;
+	private TextView cuDaysButton;
+	private TextView cuAllButton;
+	private LinearLayout cuLayout;
+	private Button enableCUButton;
+	private ProgressBar cuProgressBar;
+
+	//Tabs in Shares
 	private TabLayout tabLayoutShares;
 	private SharesPageAdapter sharesPageAdapter;
 	private CustomViewPager viewPagerShares;
@@ -585,6 +593,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private RelativeLayout callInProgressLayout;
 	private Chronometer callInProgressChrono;
 	private TextView callInProgressText;
+	private LinearLayout microOffLayout;
+	private LinearLayout videoOnLayout;
 
 	boolean firstTimeAfterInstallation = true;
 	SearchView searchView;
@@ -597,11 +607,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	boolean openLink = false;
 
 	long lastTimeOnTransferUpdate = Calendar.getInstance().getTimeInMillis();
-
-	public int orderCloud = ORDER_DEFAULT_ASC;
-	public int orderContacts = ORDER_DEFAULT_ASC;
-	public int orderOthers = ORDER_DEFAULT_ASC;
-	public int orderCamera = MegaApiJava.ORDER_MODIFICATION_DESC;
 
 	boolean firstLogin = false;
 	private boolean askPermissions = false;
@@ -629,7 +634,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private long parentHandleRubbish;
 	private long parentHandleIncoming;
 	private long parentHandleLinks;
-	private boolean isSearchEnabled;
 	private long parentHandleOutgoing;
 	private long parentHandleSearch;
 	private long parentHandleInbox;
@@ -661,7 +665,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private SettingsFragmentLollipop sttFLol;
 	private UpgradeAccountFragmentLollipop upAFL;
 	private CameraUploadsFragment cuFragment;
-	private CameraUploadsFragment muFragment;
 	private RecentChatsFragmentLollipop rChatFL;
 	private NotificationsFragmentLollipop notificFragment;
 	private TurnOnNotificationsFragment tonF;
@@ -688,6 +691,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private AlertDialog changeUserAttributeDialog;
 	private AlertDialog alertDialogStorageStatus;
 	private AlertDialog alertDialogSMSVerification;
+	private AlertDialog newTextFileDialog;
 
 	private MenuItem searchMenuItem;
 	private MenuItem gridSmallLargeMenuItem;
@@ -708,7 +712,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private MenuItem changePass;
 	private MenuItem exportMK;
 	private MenuItem takePicture;
-	private MenuItem searchByDate;
 	private MenuItem cancelSubscription;
 	private MenuItem killAllSessions;
 	private MenuItem cancelAllTransfersMenuItem;
@@ -730,27 +733,9 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	boolean isEnable2FADialogShown = false;
 	Button enable2FAButton;
 	Button skip2FAButton;
-	AlertDialog verify2FADialog;
-	boolean verify2FADialogIsShown = false;
-	int verifyPin2FADialogType;
-	private boolean is2FAEnabled = false;
-	InputMethodManager imm;
-	private EditTextPIN firstPin;
-	private EditTextPIN secondPin;
-	private EditTextPIN thirdPin;
-	private EditTextPIN fourthPin;
-	private EditTextPIN fifthPin;
-	private EditTextPIN sixthPin;
-	private StringBuilder sb = new StringBuilder();
-	private String pin = null;
-	private String newMail = null;
-	private TextView pinError;
-	private ProgressBar verify2faProgressBar;
-	private RelativeLayout lostYourDeviceButton;
 
-	private boolean isFirstTime2fa = true;
-	private boolean isErrorShown = false;
-	private boolean pinLongClick = false;
+	private boolean is2FAEnabled = false;
+
 	public boolean comesFromNotifications = false;
 	public int comesFromNotificationsLevel = 0;
 	public long comesFromNotificationHandle = -1;
@@ -804,8 +789,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private AlertDialog businessGraceAlert;
 	private boolean isBusinessCUAlertShown;
 	private AlertDialog businessCUAlert;
-	private String businessCUF;
-	private boolean businessCUFirstTime;
 
 	private BottomSheetDialogFragment bottomSheetDialogFragment;
 	private PsaViewHolder psaViewHolder;
@@ -893,37 +876,33 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				}
 				else if(actionType == UPDATE_ACCOUNT_DETAILS){
 					logDebug("BROADCAST TO UPDATE AFTER UPDATE_ACCOUNT_DETAILS");
-					if(!isFinishing()){
+					if (isFinishing()) {
+						return;
+					}
 
-						updateAccountDetailsVisibleInfo();
+					updateAccountDetailsVisibleInfo();
 
-						//Check if myAccount section is visible
-						maFLol = (MyAccountFragmentLollipop) getSupportFragmentManager().findFragmentByTag(FragmentTag.MY_ACCOUNT.getTag());
-						if(maFLol!=null){
-							logDebug("Update the account fragment");
-							maFLol.setAccountDetails();
+					//Check if myAccount section is visible
+					if (getMyAccountFragment() != null) {
+						logDebug("Update the account fragment");
+						maFLol.setAccountDetails();
+					}
+
+					if (getMyStorageFragment() != null) {
+						logDebug("Update the account fragment");
+						mStorageFLol.setAccountDetails();
+					}
+
+					if (getUpgradeAccountFragment() != null) {
+						if (drawerItem == DrawerItem.ACCOUNT && accountFragment == UPGRADE_ACCOUNT_FRAGMENT && megaApi.isBusinessAccount()) {
+							closeUpgradeAccountFragment();
+						} else {
+							upAFL.showAvailableAccount();
 						}
+					}
 
-						mStorageFLol = (MyStorageFragmentLollipop) getSupportFragmentManager().findFragmentByTag(FragmentTag.MY_STORAGE.getTag());
-						if(mStorageFLol!=null){
-							logDebug("Update the account fragment");
-							mStorageFLol.setAccountDetails();
-						}
-
-						upAFL = (UpgradeAccountFragmentLollipop) getSupportFragmentManager().findFragmentByTag(FragmentTag.UPGRADE_ACCOUNT.getTag());
-						if (upAFL != null) {
-							if (drawerItem == DrawerItem.ACCOUNT && accountFragment == UPGRADE_ACCOUNT_FRAGMENT && megaApi.isBusinessAccount()) {
-								closeUpgradeAccountFragment();
-							} else {
-								upAFL.showAvailableAccount();
-							}
-						}
-
-						checkBusinessStatus();
-
-						if (megaApi.isBusinessAccount()) {
-							supportInvalidateOptionsMenu();
-						}
+					if (megaApi.isBusinessAccount()) {
+						supportInvalidateOptionsMenu();
 					}
 				}
 				else if(actionType == UPDATE_CREDIT_CARD_SUBSCRIPTION){
@@ -941,7 +920,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		@Override
 		public void onReceive(Context context, Intent intent) {
 			if (intent != null) {
-				boolean enabled = intent.getBooleanExtra("enabled", false);
+				boolean enabled = intent.getBooleanExtra(INTENT_EXTRA_KEY_ENABLED, false);
 				is2FAEnabled = enabled;
 				if (getSettingsFragment() != null) {
 					sttFLol.update2FAPreference(enabled);
@@ -950,18 +929,17 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		}
 	};
 
-	private BroadcastReceiver receiverUpdateOrder = new BroadcastReceiver() {
+	private final BroadcastReceiver receiverUpdateOrder = new BroadcastReceiver() {
 		@Override
 		public void onReceive(Context context, Intent intent) {
-			if (intent != null) {
-				boolean cloudOrder = intent.getBooleanExtra("cloudOrder", true);
-				int order = intent.getIntExtra("order", ORDER_DEFAULT_ASC);
-				if (cloudOrder) {
-					refreshCloudOrder(order);
-				}
-				else {
-					refreshOthersOrder(order);
-				}
+			if (intent == null || !BROADCAST_ACTION_INTENT_UPDATE_ORDER.equals(intent.getAction())) {
+				return;
+			}
+
+			if (intent.getBooleanExtra(IS_CLOUD_ORDER, true)) {
+				refreshCloudOrder(intent.getIntExtra(NEW_ORDER, ORDER_DEFAULT_ASC));
+			} else {
+				refreshOthersOrder();
 			}
 		}
 	};
@@ -981,11 +959,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		public void onReceive(Context context, Intent intent) {
 
 			synchronized (this){
-				long handleInUserAttr = intent.getLongExtra(EXTRA_NODE_HANDLE, -1);
-				boolean isSecondary = intent.getBooleanExtra(EXTRA_IS_CU_SECONDARY_FOLDER, false);
-				if (isSecondary && drawerItem == DrawerItem.MEDIA_UPLOADS) {
-					secondaryMediaUploadsClicked();
-				} else if (!isSecondary && drawerItem == DrawerItem.CAMERA_UPLOADS) {
+				if (drawerItem == DrawerItem.CAMERA_UPLOADS) {
 					cameraUploadsClicked();
 				}
 
@@ -1089,6 +1063,13 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			if (intent.getAction().equals(ACTION_CHANGE_CALL_ON_HOLD)) {
 				updateVisibleCallElements(chatIdReceived);
 			}
+
+			if (intent.getAction().equals(ACTION_CHANGE_LOCAL_AVFLAGS)) {
+				MegaChatCall callInProgress = getCallInProgress();
+				if (callInProgress != null && callInProgress.getChatid() == chatIdReceived) {
+					showHideMicroAndVideoIcons(callInProgress, microOffLayout, videoOnLayout);
+				}
+			}
 		}
 	};
 
@@ -1131,6 +1112,18 @@ public class ManagerActivityLollipop extends SorterContentActivity
 					|| intent.getAction().equals(ACTION_REFRESH_CAMERA_UPLOADS_SETTING_SUBTITLE))) {
 				sttFLol.refreshCameraUploadsSettings();
 			}
+		}
+	};
+
+	private final BroadcastReceiver cuUpdateReceiver = new BroadcastReceiver() {
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			if (intent == null || !ACTION_UPDATE_CU.equals(intent.getAction())) {
+				return;
+			}
+
+			updateCUProgress(intent.getIntExtra(PROGRESS, 0),
+					intent.getIntExtra(PENDING_TRANSFERS, 0));
 		}
 	};
 
@@ -1422,36 +1415,25 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	        	break;
 	        }
 
-            case REQUEST_CAMERA_UPLOAD:{
+            case REQUEST_CAMERA_UPLOAD:
+			case REQUEST_CAMERA_ON_OFF:
                 if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
-                    checkIfShouldShowBusinessCUAlert(BUSINESS_CU_FRAGMENT_SETTINGS, false);
+                    checkIfShouldShowBusinessCUAlert();
                 } else {
                     showSnackbar(SNACKBAR_TYPE, getString(R.string.on_refuse_storage_permission), INVALID_HANDLE);
                 }
 
                 break;
-            }
 
-            case REQUEST_CAMERA_ON_OFF: {
-                if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    checkIfShouldShowBusinessCUAlert(BUSINESS_CU_FRAGMENT_CU, false);
-                } else {
-					showSnackbar(SNACKBAR_TYPE, getString(R.string.on_refuse_storage_permission), INVALID_HANDLE);
-                }
-                break;
-            }
-
-            case REQUEST_CAMERA_ON_OFF_FIRST_TIME:{
+			case REQUEST_CAMERA_ON_OFF_FIRST_TIME:
                 if(permissions.length == 0) {
                     return;
                 }
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED){
-                    checkIfShouldShowBusinessCUAlert(BUSINESS_CU_FRAGMENT_CU, true);
+                    checkIfShouldShowBusinessCUAlert();
                 } else {
                     if (!ActivityCompat.shouldShowRequestPermissionRationale(this,permissions[0])) {
-                        cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-								.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-                        if (cuFragment != null) {
+                        if (getCameraUploadFragment() != null) {
 							cuFragment.onStoragePermissionRefused();
                         }
                     } else {
@@ -1460,7 +1442,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
                 }
 
                 break;
-            }
 
 			case PermissionsFragment.PERMISSIONS_FRAGMENT: {
 				pF = (PermissionsFragment) getSupportFragmentManager().findFragmentByTag(FragmentTag.PERMISSIONS.getTag());
@@ -1528,9 +1509,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		outState.putSerializable(SEARCH_DRAWER_ITEM, searchDrawerItem);
 		outState.putSerializable(SEARCH_SHARED_TAB, searchSharedTab);
 		outState.putBoolean(EXTRA_FIRST_LOGIN, firstLogin);
-
-		outState.putBoolean("isSearchEnabled", isSearchEnabled);
-		outState.putLongArray("searchDate",searchDate);
 		outState.putBoolean(STATE_KEY_SMS_DIALOG, isSMSDialogShowing);
 		outState.putString(STATE_KEY_SMS_BONUS, bonusStorageSMS);
 
@@ -1577,8 +1555,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		}
 
 		outState.putInt("orientationSaved", orientationSaved);
-		outState.putBoolean("verify2FADialogIsShown", verify2FADialogIsShown);
-		outState.putInt("verifyPin2FADialogType", verifyPin2FADialogType);
 		outState.putBoolean("isEnable2FADialogShown", isEnable2FADialogShown);
 		outState.putInt("bottomNavigationCurrentItem", bottomNavigationCurrentItem);
 		outState.putBoolean("searchExpand", searchExpand);
@@ -1616,8 +1592,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		outState.putBoolean(BUSINESS_GRACE_ALERT_SHOWN, isBusinessGraceAlertShown);
 		if (isBusinessCUAlertShown) {
 			outState.putBoolean(BUSINESS_CU_ALERT_SHOWN, isBusinessCUAlertShown);
-			outState.putString(BUSINESS_CU_FRAGMENT, businessCUF);
-			outState.putBoolean(BUSINESS_CU_FIRST_TIME, businessCUFirstTime);
 		}
 
 		outState.putBoolean(TRANSFER_OVER_QUOTA_SHOWN, isTransferOverQuotaWarningShown);
@@ -1625,6 +1599,13 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		outState.putBoolean(JOINING_CHAT_LINK, joiningToChatLink);
 		outState.putString(LINK_JOINING_CHAT_LINK, linkJoinToChatLink);
 		outState.putBoolean(CONNECTED, connected);
+		outState.putBoolean(SMALL_GRID, isSmallGridCameraUploads);
+
+		if (getCameraUploadFragment() != null) {
+			getSupportFragmentManager().putFragment(outState, FragmentTag.CAMERA_UPLOADS.getTag(), cuFragment);
+		}
+
+		checkNewTextFileDialogState(newTextFileDialog, outState);
 
 		nodeAttacher.saveState(outState);
 		nodeSaver.saveState(outState);
@@ -1647,6 +1628,20 @@ public class ManagerActivityLollipop extends SorterContentActivity
 //		Thus if you call super.onCreate() first, all of the rest of your onCreate() method will execute after your Fragments have been restored.
 		super.onCreate(savedInstanceState);
 		logDebug("onCreate after call super");
+
+		// This block for solving the issue below:
+		// Android is installed for the first time. Press the “Open” button on the system installation dialog, press the home button to switch the app to background,
+		// and then switch the app to foreground, causing the app to create a new instantiation.
+		if (!isTaskRoot()) {
+			Intent intent = getIntent();
+			if (intent != null) {
+				String action = intent.getAction();
+				if (intent.hasCategory(Intent.CATEGORY_LAUNCHER) && Intent.ACTION_MAIN.equals(action)) {
+					finish();
+					return;
+				}
+			}
+		}
 
 		boolean selectDrawerItemPending = true;
 		//upload from device, progress dialog should show when screen orientation changes.
@@ -1671,10 +1666,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			deepBrowserTreeIncoming = savedInstanceState.getInt("deepBrowserTreeIncoming", 0);
 			deepBrowserTreeOutgoing = savedInstanceState.getInt("deepBrowserTreeOutgoing", 0);
 			deepBrowserTreeLinks = savedInstanceState.getInt(DEEP_BROWSER_TREE_LINKS, 0);
-			isSearchEnabled = savedInstanceState.getBoolean("isSearchEnabled");
 			isSMSDialogShowing = savedInstanceState.getBoolean(STATE_KEY_SMS_DIALOG, false);
 			bonusStorageSMS = savedInstanceState.getString(STATE_KEY_SMS_BONUS);
-			searchDate = savedInstanceState.getLongArray("searchDate");
 			firstLogin = savedInstanceState.getBoolean(EXTRA_FIRST_LOGIN);
 			askPermissions = savedInstanceState.getBoolean(EXTRA_ASK_PERMISSIONS);
 			drawerItem = (DrawerItem) savedInstanceState.getSerializable("drawerItem");
@@ -1696,8 +1689,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			passwordReminderFromMyAccount = savedInstanceState.getBoolean("passwordReminderFromaMyAccount", false);
 			turnOnNotifications = savedInstanceState.getBoolean("turnOnNotifications", false);
 			orientationSaved = savedInstanceState.getInt("orientationSaved");
-			verify2FADialogIsShown = savedInstanceState.getBoolean("verify2FADialogIsShown", false);
-			verifyPin2FADialogType = savedInstanceState.getInt("verifyPin2FADialogType");
 			isEnable2FADialogShown = savedInstanceState.getBoolean("isEnable2FADialogShown", false);
 			bottomNavigationCurrentItem = savedInstanceState.getInt("bottomNavigationCurrentItem", -1);
 			searchExpand = savedInstanceState.getBoolean("searchExpand", false);
@@ -1722,16 +1713,12 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			openLinkDialogIsShown = savedInstanceState.getBoolean("openLinkDialogIsShown", false);
 			isBusinessGraceAlertShown = savedInstanceState.getBoolean(BUSINESS_GRACE_ALERT_SHOWN, false);
 			isBusinessCUAlertShown = savedInstanceState.getBoolean(BUSINESS_CU_ALERT_SHOWN, false);
-			if (isBusinessCUAlertShown) {
-				businessCUF = savedInstanceState.getString(BUSINESS_CU_FRAGMENT);
-				businessCUFirstTime = savedInstanceState.getBoolean(BUSINESS_CU_FIRST_TIME, false);
-			}
-
 			isTransferOverQuotaWarningShown = savedInstanceState.getBoolean(TRANSFER_OVER_QUOTA_SHOWN, false);
 			typesCameraPermission = savedInstanceState.getInt(TYPE_CALL_PERMISSION, INVALID_TYPE_PERMISSIONS);
 			joiningToChatLink = savedInstanceState.getBoolean(JOINING_CHAT_LINK, false);
 			linkJoinToChatLink = savedInstanceState.getString(LINK_JOINING_CHAT_LINK);
 			connected = savedInstanceState.getBoolean(CONNECTED, false);
+			isSmallGridCameraUploads = savedInstanceState.getBoolean(SMALL_GRID, false);
 
 			nodeAttacher.restoreState(savedInstanceState);
 			nodeSaver.restoreState(savedInstanceState);
@@ -1743,7 +1730,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			parentHandleIncoming = -1;
 			parentHandleOutgoing = -1;
 			parentHandleLinks = INVALID_HANDLE;
-			isSearchEnabled= false;
 			parentHandleSearch = -1;
 			parentHandleInbox = -1;
 			indexContacts = -1;
@@ -1789,6 +1775,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		registerReceiver(chatSessionUpdateReceiver, new IntentFilter(ACTION_CHANGE_SESSION_ON_HOLD));
 		IntentFilter filterCall = new IntentFilter(ACTION_CALL_STATUS_UPDATE);
 		filterCall.addAction(ACTION_CHANGE_CALL_ON_HOLD);
+		filterCall.addAction(ACTION_CHANGE_LOCAL_AVFLAGS);
 		registerReceiver(chatCallUpdateReceiver, filterCall);
 
 		registerReceiver(chatRoomMuteUpdateReceiver, new IntentFilter(ACTION_UPDATE_PUSH_NOTIFICATION_SETTING));
@@ -1800,6 +1787,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		filterUpdateCUSettings.addAction(ACTION_REFRESH_CAMERA_UPLOADS_SETTING);
 		filterUpdateCUSettings.addAction(ACTION_REFRESH_CAMERA_UPLOADS_SETTING_SUBTITLE);
         registerReceiver(updateCUSettingsReceiver, filterUpdateCUSettings);
+
+        registerReceiver(cuUpdateReceiver, new IntentFilter(ACTION_UPDATE_CU));
 
         smsDialogTimeChecker = new LastShowSMSDialogTimeChecker(this);
         nC = new NodeController(this);
@@ -1838,15 +1827,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		outMetrics = new DisplayMetrics ();
 	    display.getMetrics(outMetrics);
 	    float density  = getResources().getDisplayMetrics().density;
-
-	    float scaleW = getScaleW(outMetrics, density);
-	    float scaleH = getScaleH(outMetrics, density);
-	    if (scaleH < scaleW){
-	    	scaleText = scaleH;
-	    }
-	    else{
-	    	scaleText = scaleW;
-	    }
 
 	    if (dbH.getEphemeral() != null){
             Intent intent = new Intent(managerActivity, LoginActivityLollipop.class);
@@ -1894,7 +1874,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		if (prefs == null){
 			firstTimeAfterInstallation = true;
 			isList=true;
-			isSmallGridCameraUploads = false;
+
+			if (savedInstanceState == null) {
+				isSmallGridCameraUploads = false;
+			}
 		}
 		else{
 			if (prefs.getFirstTime() == null){
@@ -1909,52 +1892,15 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				isList = Boolean.parseBoolean(prefs.getPreferredViewList());
 			}
 
-			isSmallGridCameraUploads = dbH.isSmallGridCamera();
+			if (savedInstanceState == null) {
+				isSmallGridCameraUploads = dbH.isSmallGridCamera();
+			}
 		}
 		logDebug("Preferred View List: " + isList);
 
 		LiveEventBus.get(EVENT_LIST_GRID_CHANGE, Boolean.class).post(isList);
 
-		if(prefs!=null){
-			if(prefs.getPreferredSortCloud()!=null){
-				orderCloud = Integer.parseInt(prefs.getPreferredSortCloud());
-				logDebug("The orderCloud preference is: " + orderCloud);
-			}
-			else{
-				orderCloud = ORDER_DEFAULT_ASC;
-				logDebug("Preference orderCloud is NULL -> ORDER_DEFAULT_ASC");
-			}
-			if(prefs.getPreferredSortContacts()!=null){
-				orderContacts = Integer.parseInt(prefs.getPreferredSortContacts());
-				logDebug("The orderContacts preference is: " + orderContacts);
-			}
-			else{
-				orderContacts = ORDER_DEFAULT_ASC;
-				logDebug("Preference orderContacts is NULL -> ORDER_DEFAULT_ASC");
-			}
-            if (prefs.getPreferredSortCameraUpload() != null) {
-                orderCamera = Integer.parseInt(prefs.getPreferredSortCameraUpload());
-                logDebug("The orderCamera preference is: " + orderCamera);
-            } else {
-                logDebug("Preference orderCamera is NULL -> ORDER_MODIFICATION_DESC");
-            }
-			if(prefs.getPreferredSortOthers()!=null){
-				orderOthers = Integer.parseInt(prefs.getPreferredSortOthers());
-				logDebug("The orderOthers preference is: " + orderOthers);
-			}
-			else{
-				orderOthers = ORDER_DEFAULT_ASC;
-				logDebug("Preference orderOthers is NULL -> ORDER_DEFAULT_ASC");
-			}
-		}
-		else {
-			logDebug("Prefs is NULL -> ORDER_DEFAULT_ASC");
-			orderCloud = ORDER_DEFAULT_ASC;
-			orderContacts = ORDER_DEFAULT_ASC;
-			orderOthers = ORDER_DEFAULT_ASC;
-		}
-
-		LiveEventBus.get(EVENT_ORDER_CHANGE, Integer.class).post(orderCloud);
+		LiveEventBus.get(EVENT_ORDER_CHANGE, Integer.class).post(sortOrderManagement.getOrderCloud());
 
 		handler = new Handler();
 
@@ -2130,6 +2076,20 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			tabLayoutContacts.setTabMode(TabLayout.MODE_SCROLLABLE);
 		}
 
+		cuViewTypes = findViewById(R.id.cu_view_type);
+		cuYearsButton = findViewById(R.id.years_button);
+		cuMonthsButton = findViewById(R.id.months_button);
+		cuDaysButton = findViewById(R.id.days_button);
+		cuAllButton = findViewById(R.id.all_button);
+		cuLayout = findViewById(R.id.cu_layout);
+		cuProgressBar = findViewById(R.id.cu_progress_bar);
+		enableCUButton = findViewById(R.id.enable_cu_button);
+		enableCUButton.setOnClickListener(v -> {
+			if (getCameraUploadFragment() != null) {
+				cuFragment.enableCUClick();
+			}
+		});
+
 		//TABS section Shared Items
 		tabLayoutShares =  findViewById(R.id.sliding_tabs_shares);
 		viewPagerShares = findViewById(R.id.shares_tabs_pager);
@@ -2218,6 +2178,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		callInProgressLayout.setOnClickListener(this);
 		callInProgressChrono = findViewById(R.id.call_in_progress_chrono);
 		callInProgressText = findViewById(R.id.call_in_progress_text);
+		microOffLayout = findViewById(R.id.micro_off_layout);
+		videoOnLayout = findViewById(R.id.video_on_layout);
 		callInProgressLayout.setVisibility(View.GONE);
 
 		if (mElevationCause > 0) {
@@ -2494,9 +2456,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			initGooglePlayPayments();
 
 			megaApi.addGlobalListener(this);
-
-			megaApi.shouldShowRichLinkWarning(this);
-			megaApi.isRichPreviewsEnabled(this);
 			megaApi.isGeolocationEnabled(this);
 
 			if(savedInstanceState==null) {
@@ -2983,10 +2942,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 		megaApi.shouldShowPasswordReminderDialog(false, this);
 
-		if (verify2FADialogIsShown){
-			showVerifyPin2FA(verifyPin2FADialogType);
-		}
-
 		updateAccountDetailsVisibleInfo();
 
 		setContactStatus();
@@ -3014,6 +2969,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 		PsaManager.INSTANCE.startChecking();
 
+		if (savedInstanceState != null && savedInstanceState.getBoolean(IS_NEW_TEXT_FILE_SHOWN, false)) {
+			showNewTextFileDialog(savedInstanceState.getString(NEW_TEXT_FILE_TEXT));
+		}
+
 		logDebug("END onCreate");
 	}
 
@@ -3027,7 +2986,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	 * 		and the business warnings and SMS verification have not to be shown.
 	 */
 	private void checkInitialScreens() {
-    	if (checkBusinessStatus()) {
+		if (checkBusinessStatus()) {
 			setBusinessAlertShown(true);
 			return;
 		}
@@ -3062,34 +3021,42 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	 *
 	 * @return True if some warning has been shown, false otherwise.
 	 */
-    private boolean checkBusinessStatus() {
-        if (isBusinessGraceAlertShown) {
-            showBusinessGraceAlert();
-            return true;
-        }
-
-        if (isBusinessCUAlertShown) {
-        	showBusinessCUAlert();
-        	return true;
+	private boolean checkBusinessStatus() {
+		if (!megaApi.isBusinessAccount()) {
+			return false;
 		}
 
-        MyAccountInfo myAccountInfo = MegaApplication.getInstance().getMyAccountInfo();
+		if (isBusinessGraceAlertShown) {
+			showBusinessGraceAlert();
+			return true;
+		}
 
-        if (myAccountInfo != null && myAccountInfo.shouldShowBusinessAlert()) {
-            int status = megaApi.getBusinessStatus();
-            if (status == BUSINESS_STATUS_EXPIRED) {
-                myAccountInfo.setShouldShowBusinessAlert(false);
-                startActivity(new Intent(this, BusinessExpiredAlertActivity.class));
-                return true;
-            } else if (megaApi.isMasterBusinessAccount() && status == BUSINESS_STATUS_GRACE_PERIOD) {
-                myAccountInfo.setShouldShowBusinessAlert(false);
-                showBusinessGraceAlert();
-                return true;
-            }
-        }
+		if (isBusinessCUAlertShown) {
+			showBusinessCUAlert();
+			return true;
+		}
 
-        return false;
-    }
+		MyAccountInfo myAccountInfo = MegaApplication.getInstance().getMyAccountInfo();
+		if (myAccountInfo == null || myAccountInfo.isBusinessAlertShown()) {
+			return false;
+		}
+
+		if (firstLogin && myAccountInfo.wasNotBusinessAlertShownYet()) {
+			int status = megaApi.getBusinessStatus();
+
+			if (status == BUSINESS_STATUS_EXPIRED) {
+				myAccountInfo.setBusinessAlertAlreadyShown();
+				startActivity(new Intent(this, BusinessExpiredAlertActivity.class));
+				return true;
+			} else if (megaApi.isMasterBusinessAccount() && status == BUSINESS_STATUS_GRACE_PERIOD) {
+				myAccountInfo.setBusinessAlertAlreadyShown();
+				showBusinessGraceAlert();
+				return true;
+			}
+		}
+
+		return false;
+	}
 
     private void showBusinessGraceAlert() {
     	logDebug("showBusinessGraceAlert");
@@ -3121,13 +3088,15 @@ public class ManagerActivityLollipop extends SorterContentActivity
         isBusinessGraceAlertShown = true;
     }
 
-	public void checkIfShouldShowBusinessCUAlert(String f, boolean firstTime) {
-    	businessCUF = f;
-    	businessCUFirstTime = firstTime;
+	public void checkIfShouldShowBusinessCUAlert() {
 		if (megaApi.isBusinessAccount() && !megaApi.isMasterBusinessAccount()) {
 			showBusinessCUAlert();
-		} else {
-		    enableCU();
+		} else if (getCameraUploadFragment() != null){
+			if (cuFragment.isEnableCUFragmentShown()) {
+				cuFragment.enableCu();
+			} else {
+				cuFragment.enableCUClick();
+			}
 		}
 	}
 
@@ -3137,33 +3106,19 @@ public class ManagerActivityLollipop extends SorterContentActivity
         }
 
 		MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
-        builder.setTitle(R.string.section_photo_sync)
-                .setMessage(R.string.camera_uploads_business_alert)
-                .setNegativeButton(R.string.general_cancel, (dialog, which) -> {})
-                .setPositiveButton(R.string.general_enable, (dialog, which) -> enableCU())
+		builder.setTitle(R.string.section_photo_sync)
+				.setMessage(R.string.camera_uploads_business_alert)
+				.setNegativeButton(R.string.general_cancel, (dialog, which) -> { })
+				.setPositiveButton(R.string.general_enable, (dialog, which) -> {
+					if (getCameraUploadFragment() != null) {
+						cuFragment.enableCUClick();
+					}
+				})
 				.setCancelable(false)
 				.setOnDismissListener(dialog -> setBusinessAlertShown(isBusinessCUAlertShown = false));
-        businessCUAlert = builder.create();
-        businessCUAlert.show();
-        isBusinessCUAlertShown = true;
-    }
-
-    private void enableCU() {
-		sendBroadcast(new Intent(ACTION_UPDATE_ENABLE_CU_SETTING));
-
-        if (businessCUF.equals(BUSINESS_CU_FRAGMENT_CU)) {
-            cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-					.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-            if (cuFragment == null) {
-                return;
-            }
-
-            if (businessCUFirstTime) {
-				cuFragment.enableCuForBusinessFirstTime();
-            } else {
-				cuFragment.enableCuForBusiness();
-            }
-        }
+		businessCUAlert = builder.create();
+		businessCUAlert.show();
+		isBusinessCUAlertShown = true;
     }
 
 	private void openContactLink (long handle) {
@@ -3620,16 +3575,16 @@ public class ManagerActivityLollipop extends SorterContentActivity
                     builder.setMessage(text);
 
                     builder.setPositiveButton(getString(R.string.general_yes),
-                            new DialogInterface.OnClickListener() {
-                                public void onClick(DialogInterface dialog, int whichButton) {
-                                    stopRunningCameraUploadService(ManagerActivityLollipop.this);
-                                    dbH.setCamSyncEnabled(false);
-                                    sendBroadcast(new Intent(ACTION_UPDATE_DISABLE_CU_SETTING));
-									if (cuFragment != null && cuFragment.isResumed()) {
-										cuFragment.resetSwitchButtonLabel();
-									}
-                                }
-                            });
+							(dialog, whichButton) -> {
+								stopRunningCameraUploadService(ManagerActivityLollipop.this);
+								dbH.setCamSyncEnabled(false);
+								sendBroadcast(new Intent(ACTION_UPDATE_DISABLE_CU_SETTING));
+
+								if (drawerItem == DrawerItem.CAMERA_UPLOADS) {
+									cuLayout.setVisibility(View.VISIBLE);
+								}
+							});
+
                     builder.setNegativeButton(getString(R.string.general_no), null);
                     final AlertDialog dialog = builder.create();
                     try {
@@ -4231,7 +4186,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 		dbH.removeSentPendingMessages();
 
-    	if (megaApi.getRootNode() != null){
+    	if (megaApi != null && megaApi.getRootNode() != null){
     		megaApi.removeGlobalListener(this);
     		megaApi.removeTransferListener(this);
     		megaApi.removeRequestListener(this);
@@ -4261,6 +4216,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		unregisterReceiver(transferFinishReceiver);
         unregisterReceiver(cameraUploadLauncherReceiver);
         unregisterReceiver(updateCUSettingsReceiver);
+		unregisterReceiver(cuUpdateReceiver);
 
 		if (mBillingManager != null) {
 			mBillingManager.destroy();
@@ -4273,6 +4229,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
         if (confirmationTransfersDialog != null) {
             confirmationTransfersDialog.dismiss();
         }
+
+        if (newTextFileDialog != null) {
+        	newTextFileDialog.dismiss();
+		}
 
         if (miniAudioPlayerController != null) {
 			miniAudioPlayerController.onDestroy();
@@ -4304,7 +4264,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		}
 	}
 
-	void refreshFragment (String fTag) {
+	private void refreshFragment (String fTag) {
 		Fragment f = getSupportFragmentManager().findFragmentByTag(fTag);
 		if (f != null) {
 			logDebug("Fragment " + fTag + " refreshing");
@@ -4405,7 +4365,11 @@ public class ManagerActivityLollipop extends SorterContentActivity
     private void observePsa() {
         psaViewHolder = new PsaViewHolder(findViewById(R.id.psa_layout), PsaManager.INSTANCE);
 
-		PsaManager.INSTANCE.getPsa().observe(this, this::showPsa);
+		LiveEventBus.get(EVENT_PSA, Psa.class).observe(this, psa -> {
+			if (psa.getUrl() == null) {
+				showPsa(psa);
+			}
+		});
     }
 
 	/**
@@ -4655,24 +4619,13 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			}
 			case CAMERA_UPLOADS:{
 				aB.setSubtitle(null);
-				if(isSearchEnabled){
+				if (getCameraUploadFragment() != null && cuFragment.isEnableCUFragmentShown()) {
 					setFirstNavigationLevel(false);
-				}
-				else{
+					aB.setTitle(getString(R.string.settings_camera_upload_on).toUpperCase());
+				} else {
 					setFirstNavigationLevel(true);
 					aB.setTitle(getString(R.string.section_photo_sync).toUpperCase());
 				}
-				break;
-			}
-			case MEDIA_UPLOADS:{
-				aB.setSubtitle(null);
-				if(isSearchEnabled){
-					setFirstNavigationLevel(false);
-				}
-				else{
-					setFirstNavigationLevel(true);
-				}
-				aB.setTitle(getString(R.string.section_secondary_media_uploads).toUpperCase());
 				break;
 			}
 			case HOMEPAGE: {
@@ -4733,7 +4686,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		if(totalNotifications==0){
 			if(isFirstNavigationLevel()){
 				if (drawerItem == DrawerItem.SEARCH || drawerItem == DrawerItem.ACCOUNT || drawerItem == DrawerItem.INBOX || drawerItem == DrawerItem.CONTACTS || drawerItem == DrawerItem.NOTIFICATIONS
-						|| drawerItem == DrawerItem.SETTINGS || drawerItem == DrawerItem.RUBBISH_BIN || drawerItem == DrawerItem.MEDIA_UPLOADS || drawerItem == DrawerItem.TRANSFERS){
+						|| drawerItem == DrawerItem.SETTINGS || drawerItem == DrawerItem.RUBBISH_BIN || drawerItem == DrawerItem.TRANSFERS){
 					aB.setHomeAsUpIndicator(tintIcon(this, R.drawable.ic_arrow_back_white));
 				}
 				else {
@@ -4747,7 +4700,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		else{
 			if(isFirstNavigationLevel()){
 				if (drawerItem == DrawerItem.SEARCH || drawerItem == DrawerItem.ACCOUNT || drawerItem == DrawerItem.INBOX || drawerItem == DrawerItem.CONTACTS || drawerItem == DrawerItem.NOTIFICATIONS
-						|| drawerItem == DrawerItem.SETTINGS || drawerItem == DrawerItem.RUBBISH_BIN || drawerItem == DrawerItem.MEDIA_UPLOADS || drawerItem == DrawerItem.TRANSFERS){
+						|| drawerItem == DrawerItem.SETTINGS || drawerItem == DrawerItem.RUBBISH_BIN || drawerItem == DrawerItem.TRANSFERS){
 					badgeDrawable.setProgress(1.0f);
 				}
 				else {
@@ -4944,7 +4897,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				case SEARCH:
 				case ACCOUNT:
 				case TRANSFERS:
-				case MEDIA_UPLOADS:
 				case NOTIFICATIONS:
 				case INBOX:{
 					setBottomNavigationMenuItemChecked(HIDDEN_BNV);
@@ -5534,6 +5486,19 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		});
 	}
 
+	/**
+	 * Hides all views only related to CU section and sets the CU default view.
+	 */
+	private void resetCUFragment() {
+		cuLayout.setVisibility(View.GONE);
+		cuViewTypes.setVisibility(View.GONE);
+
+		if (getCameraUploadFragment() != null) {
+			cuFragment.setDefaultView();
+			showBottomView();
+		}
+	}
+
 	@SuppressLint("NewApi")
 	public void selectDrawerItemLollipop(DrawerItem item) {
     	if (item == null) {
@@ -5555,6 +5520,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		if (item != DrawerItem.CHAT) {
 			//remove recent chat fragment as its life cycle get triggered unexpectedly, e.g. rotate device while not on recent chat page
 			removeFragment(getChatsFragment());
+		}
+
+		if (item != DrawerItem.CAMERA_UPLOADS) {
+			resetCUFragment();
 		}
 
 		if (item != DrawerItem.TRANSFERS && isTransfersInProgressAdded()) {
@@ -5623,24 +5592,21 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				}
 
 				showGlobalAlertDialogsIfNeeded();
-				initCuSync();
 				break;
 			}
     		case CAMERA_UPLOADS: {
 				abL.setVisibility(View.VISIBLE);
-				cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-						.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-				if (cuFragment == null) {
-					cuFragment = CameraUploadsFragment.newInstance(
-							CameraUploadsFragment.TYPE_CAMERA);
+
+				if (getCameraUploadFragment() == null) {
+					cuFragment = new CameraUploadsFragment();
 				} else {
 					refreshFragment(FragmentTag.CAMERA_UPLOADS.getTag());
 				}
 
+				cuFragment.setViewTypes(cuViewTypes, cuYearsButton, cuMonthsButton, cuDaysButton, cuAllButton);
 				replaceFragment(cuFragment, FragmentTag.CAMERA_UPLOADS.getTag());
-
 				setToolbarTitle();
-    			supportInvalidateOptionsMenu();
+				supportInvalidateOptionsMenu();
 				showFabButton();
 				showHideBottomNavigationView(false);
 				if (!comesFromNotifications) {
@@ -5649,32 +5615,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				setBottomNavigationMenuItemChecked(CAMERA_UPLOADS_BNV);
 
 				break;
-    		}
-    		case MEDIA_UPLOADS: {
-				abL.setVisibility(View.VISIBLE);
-
-				setBottomNavigationMenuItemChecked(HIDDEN_BNV);
-
-				muFragment = (CameraUploadsFragment) getSupportFragmentManager()
-						.findFragmentByTag(FragmentTag.MEDIA_UPLOADS.getTag());
-				if (muFragment == null) {
-					muFragment = CameraUploadsFragment.newInstance(
-							CameraUploadsFragment.TYPE_MEDIA);
-				} else {
-					refreshFragment(FragmentTag.MEDIA_UPLOADS.getTag());
-				}
-
-				replaceFragment(muFragment, FragmentTag.MEDIA_UPLOADS.getTag());
-
-    			supportInvalidateOptionsMenu();
-    			setToolbarTitle();
-				showFabButton();
-				showHideBottomNavigationView(false);
-				if (!comesFromNotifications) {
-					bottomNavigationCurrentItem = MEDIA_UPLOADS_BNV;
-				}
-				setBottomNavigationMenuItemChecked(HIDDEN_BNV);
-      			break;
     		}
     		case INBOX:{
 				showHideBottomNavigationView(true);
@@ -5996,21 +5936,11 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				break;
 			}
             case CAMERA_UPLOADS: {
-				cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-						.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-                if (cuFragment != null) {
+                if (getCameraUploadFragment() != null) {
 					cuFragment.checkScroll();
                 }
                 break;
             }
-			case MEDIA_UPLOADS: {
-				muFragment = (CameraUploadsFragment) getSupportFragmentManager()
-						.findFragmentByTag(FragmentTag.MEDIA_UPLOADS.getTag());
-				if (muFragment != null) {
-					muFragment.checkScroll();
-				}
-				break;
-			}
             case INBOX: {
             	iFLol = (InboxFragmentLollipop) getSupportFragmentManager().findFragmentByTag(FragmentTag.INBOX.getTag());
                 if (iFLol != null) {
@@ -6363,7 +6293,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		pauseTransfersMenuIcon = menu.findItem(R.id.action_pause);
 		scanQRcodeMenuItem = menu.findItem(R.id.action_scan_qr);
 		takePicture = menu.findItem(R.id.action_take_picture);
-		searchByDate = menu.findItem(R.id.action_search_by_date);
 		cancelSubscription = menu.findItem(R.id.action_menu_cancel_subscriptions);
 		exportMK = menu.findItem(R.id.action_menu_export_MK);
 		killAllSessions = menu.findItem(R.id.action_menu_kill_all_sessions);
@@ -6427,7 +6356,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 					}
 					break;
 				case CAMERA_UPLOADS:
-				case MEDIA_UPLOADS:
 					gridSmallLargeMenuItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
 
 					updateCuFragmentOptionsMenu();
@@ -6681,20 +6609,13 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			return;
 		}
 
-		if ((drawerItem == DrawerItem.CAMERA_UPLOADS
+		if (drawerItem == DrawerItem.CAMERA_UPLOADS
 				&& getCameraUploadFragment() != null
-				&& cuFragment.getItemCount() > 0)
-				|| (drawerItem == DrawerItem.MEDIA_UPLOADS
-				&& getMediaUploadFragment() != null
-				&& muFragment.getItemCount() > 0)) {
-			sortByMenuItem.setVisible(true);
-
-			if (firstNavigationLevel) {
-				searchByDate.setVisible(true);
-			}
-
+				&& cuFragment.getItemCount() > 0) {
+			boolean visible = cuFragment.shouldShowFullInfoAndOptions();
+			sortByMenuItem.setVisible(visible);
 			setCuThumbnailTypeIcon();
-			gridSmallLargeMenuItem.setVisible(true);
+			gridSmallLargeMenuItem.setVisible(visible);
 		}
 	}
 
@@ -6739,11 +6660,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			case android.R.id.home:{
 				if (firstNavigationLevel && drawerItem != DrawerItem.SEARCH){
 					if (drawerItem == DrawerItem.RUBBISH_BIN || drawerItem == DrawerItem.ACCOUNT || drawerItem == DrawerItem.INBOX || drawerItem == DrawerItem.CONTACTS
-							|| drawerItem == DrawerItem.NOTIFICATIONS|| drawerItem == DrawerItem.SETTINGS || drawerItem == DrawerItem.MEDIA_UPLOADS || drawerItem == DrawerItem.TRANSFERS) {
-						if (drawerItem == DrawerItem.MEDIA_UPLOADS) {
-							backToDrawerItem(CLOUD_DRIVE_BNV);
-						}
-						else if (drawerItem == DrawerItem.ACCOUNT && comesFromNotifications) {
+							|| drawerItem == DrawerItem.NOTIFICATIONS|| drawerItem == DrawerItem.SETTINGS || drawerItem == DrawerItem.TRANSFERS) {
+						if (drawerItem == DrawerItem.ACCOUNT && comesFromNotifications) {
 							comesFromNotifications = false;
 							selectDrawerItemLollipop(DrawerItem.NOTIFICATIONS);
 						}
@@ -6782,27 +6700,17 @@ public class ManagerActivityLollipop extends SorterContentActivity
 						}
 		    		}
 					else if (drawerItem == DrawerItem.CAMERA_UPLOADS) {
-						cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-								.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-						if (cuFragment != null) {
-							cuFragment.setSearchDate(null, orderCamera);
-							isSearchEnabled = false;
+						if (getCameraUploadFragment() != null) {
+							if (cuFragment.isEnableCUFragmentShown()) {
+								cuFragment.onBackPressed();
+								return true;
+							}
+
 							setToolbarTitle();
 							invalidateOptionsMenu();
 							return true;
 						}
-					}else if (drawerItem == DrawerItem.MEDIA_UPLOADS){
-						muFragment = (CameraUploadsFragment) getSupportFragmentManager()
-								.findFragmentByTag(FragmentTag.MEDIA_UPLOADS.getTag());
-						if (muFragment != null) {
-							muFragment.setSearchDate(null, orderCamera);
-							isSearchEnabled = false;
-							setToolbarTitle();
-							invalidateOptionsMenu();
-							return true;
-						}
-					}
-					else if (drawerItem == DrawerItem.INBOX){
+					} else if (drawerItem == DrawerItem.INBOX) {
 						iFLol = (InboxFragmentLollipop) getSupportFragmentManager().findFragmentByTag(FragmentTag.INBOX.getTag());
 						if (iFLol != null){
 							iFLol.onBackPressed();
@@ -7071,12 +6979,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 						}
 						break;
 
-					case MEDIA_UPLOADS:
-						if (getMediaUploadFragment() != null) {
-							muFragment.selectAll();
-						}
-						break;
-
 					case CAMERA_UPLOADS:
 						if (getCameraUploadFragment() != null) {
 							cuFragment.selectAll();
@@ -7095,13 +6997,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 					refreshFragment(FragmentTag.CAMERA_UPLOADS.getTag());
 	        	}
-	        	else if (drawerItem == DrawerItem.MEDIA_UPLOADS){
-					isSmallGridCameraUploads = !isSmallGridCameraUploads;
-					dbH.setSmallGridCamera(isSmallGridCameraUploads);
-
-					setCuThumbnailTypeIcon();
-					refreshFragment(FragmentTag.MEDIA_UPLOADS.getTag());
-	        	}
 	        	return true;
 	        }
 	        case R.id.action_grid:{
@@ -7115,20 +7010,9 @@ public class ManagerActivityLollipop extends SorterContentActivity
 					}
 					searchMenuItem.setVisible(false);
 					refreshFragment(FragmentTag.CAMERA_UPLOADS.getTag());
-	        	}
-	        	else if (drawerItem == DrawerItem.MEDIA_UPLOADS){
-					logDebug("action_grid_list in MediaUploads");
-					if (!firstLogin) {
-						gridSmallLargeMenuItem.setVisible(true);
-					} else {
-						gridSmallLargeMenuItem.setVisible(false);
-					}
-					searchMenuItem.setVisible(false);
-					refreshFragment(FragmentTag.MEDIA_UPLOADS.getTag());
-        		}
-	        	else{
-	    			updateView(!isList);
-	        	}
+				} else {
+					updateView(!isList);
+				}
 	        	supportInvalidateOptionsMenu();
 
 	        	return true;
@@ -7152,14 +7036,35 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	        	return true;
 	        }
 	        case R.id.action_menu_sort_by:{
-				showNewSortByPanel();
+	        	int orderType;
+
+	        	switch (drawerItem) {
+					case CONTACTS:
+						orderType = ORDER_CONTACTS;
+						break;
+
+					case CAMERA_UPLOADS:
+						orderType = ORDER_CAMERA;
+						break;
+
+					default:
+						if (drawerItem == DrawerItem.SHARED_ITEMS
+								&& getTabItemShares() == INCOMING_TAB && deepBrowserTreeIncoming == 0) {
+							showNewSortByPanel(ORDER_OTHERS, true);
+							return true;
+						}
+
+						if (drawerItem == DrawerItem.SHARED_ITEMS
+								&& getTabItemShares() == OUTGOING_TAB && deepBrowserTreeOutgoing == 0) {
+							orderType = ORDER_OTHERS;
+						} else {
+							orderType = ORDER_CLOUD;
+						}
+				}
+
+				showNewSortByPanel(orderType);
 	        	return true;
 	        }
-			case R.id.action_search_by_date:{
-				Intent intent = new Intent(this, SearchByDateActivityLollipop.class);
-				startActivityForResult(intent, ACTION_SEARCH_BY_DATE);
-				return  true;
-			}
 	        case R.id.action_menu_help:{
 	        	Intent intent = new Intent();
 	            intent.setAction(Intent.ACTION_VIEW);
@@ -7453,10 +7358,11 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		if (rubbishBinFLol != null){
 			ArrayList<MegaNode> nodes;
 			if(parentHandleRubbish == -1){
-				nodes = megaApi.getChildren(megaApi.getRubbishNode(), orderCloud);
+				nodes = megaApi.getChildren(megaApi.getRubbishNode(), sortOrderManagement.getOrderCloud());
 			}
 			else{
-				nodes = megaApi.getChildren(megaApi.getNodeByHandle(parentHandleRubbish), orderCloud);
+				nodes = megaApi.getChildren(megaApi.getNodeByHandle(parentHandleRubbish),
+						sortOrderManagement.getOrderCloud());
 			}
 
 			rubbishBinFLol.hideMultipleSelect();
@@ -7516,7 +7422,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			if (isClearRubbishBin){
 				isClearRubbishBin = false;
 				parentHandleRubbish = megaApi.getRubbishNode().getHandle();
-				ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getRubbishNode(), orderCloud);
+				ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getRubbishNode(),
+						sortOrderManagement.getOrderCloud());
 				rubbishBinFLol.setNodes(nodes);
 				rubbishBinFLol.getRecyclerView().invalidate();
 			}
@@ -7534,13 +7441,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	public void onBackPressed() {
 		logDebug("onBackPressed");
 
-		// If there is a displaying PSA, we should only close it, and not navigate back anymore,
-		// e.g. when we are at chat tab, and there is a displaying PSA, when we press back, if we
-		// keep executing the remaining logic, we would go back to cloud drive tab after close
-		// the PSA browser.
-		if (closeDisplayingPsa()) {
-			return;
-		}
+		// Let the PSA web browser fragment(if visible) to consume the back key event
+		if (psaWebBrowser.consumeBack()) return;
 
 		retryConnectionsAndSignalPresence();
 
@@ -7659,19 +7561,9 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	    			break;
     		}
     	} else if (drawerItem == DrawerItem.CAMERA_UPLOADS) {
-			cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-					.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-			if (cuFragment == null || cuFragment.onBackPressed() == 0){
-				visibilitySearch(false);
+			if (getCameraUploadFragment() == null || cuFragment.onBackPressed() == 0){
 				backToDrawerItem(-1);
 			}
-    	} else if (drawerItem == DrawerItem.MEDIA_UPLOADS) {
-			muFragment = (CameraUploadsFragment) getSupportFragmentManager()
-					.findFragmentByTag(FragmentTag.MEDIA_UPLOADS.getTag());
-			if (muFragment == null || muFragment.onBackPressed() == 0){
-				visibilitySearch(false);
-				backToDrawerItem(CLOUD_DRIVE_BNV);
-    		}
     	} else if (drawerItem == DrawerItem.SEARCH) {
 			if (getSearchFragment() == null || sFLol.onBackPressed() == 0) {
     			closeSearchSection();
@@ -7681,7 +7573,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
             if(fragment != null && fragment.isFabExpanded()) {
                 fragment.collapseFab();
             } else {
-                super.onBackPressed();
+            	// The Psa requires the activity to load the new PSA even though the app
+				// is on the background. So don't call super.onBackPressed() since it will destroy
+				// this activity and its embedded web browser fragment.
+				moveTaskToBack(false);
             }
         } else {
 			handleBackPressIfFullscreenOfflineFragmentOpened();
@@ -7707,10 +7602,9 @@ public class ManagerActivityLollipop extends SorterContentActivity
             RelativeLayout transfersWidgetLayout = findViewById(R.id.transfers_widget_layout);
             if (transfersWidgetLayout == null) return;
 
-            RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) transfersWidgetLayout.getLayoutParams();
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) transfersWidgetLayout.getLayoutParams();
             params.bottomMargin = Util.dp2px(TRANSFER_WIDGET_MARGIN_BOTTOM, outMetrics);
-            params.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
-
+            params.gravity = Gravity.END;
 			transfersWidgetLayout.setLayoutParams(params);
         }
     }
@@ -7774,9 +7668,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		else if (item == HOMEPAGE_BNV || item == -1) {
 			drawerItem = DrawerItem.HOMEPAGE;
 		}
-		else if (item == MEDIA_UPLOADS_BNV) {
-    		drawerItem = DrawerItem.MEDIA_UPLOADS;
-		}
+
 		selectDrawerItemLollipop(drawerItem);
 	}
 
@@ -7812,9 +7704,14 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		switch (menuItem.getItemId()){
 			case R.id.bottom_navigation_item_cloud_drive: {
 				if (drawerItem == DrawerItem.CLOUD_DRIVE) {
-                    long rootHandle = megaApi.getRootNode().getHandle();
-                    if (parentHandleBrowser != -1 && parentHandleBrowser != rootHandle) {
-                        parentHandleBrowser = rootHandle;
+					MegaNode rootNode = megaApi.getRootNode();
+					if (rootNode == null) {
+						logError("Root node is null");
+					}
+
+                    if (parentHandleBrowser != INVALID_HANDLE
+							&& rootNode != null && parentHandleBrowser != rootNode.getHandle()) {
+                        parentHandleBrowser = rootNode.getHandle();
                         refreshFragment(FragmentTag.CLOUD_DRIVE.getTag());
                         if (isCloudAdded()) {
                             fbFLol.scrollToFirstPosition();
@@ -7838,8 +7735,11 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				break;
 			}
 			case R.id.bottom_navigation_item_camera_uploads: {
-				drawerItem = DrawerItem.CAMERA_UPLOADS;
-				setBottomNavigationMenuItemChecked(CAMERA_UPLOADS_BNV);
+				// if pre fragment is the same one, do nothing.
+				if(oldDrawerItem != DrawerItem.CAMERA_UPLOADS) {
+					drawerItem = DrawerItem.CAMERA_UPLOADS;
+					setBottomNavigationMenuItemChecked(CAMERA_UPLOADS_BNV);
+				}
 				break;
 			}
 			case R.id.bottom_navigation_item_shared_items: {
@@ -8178,521 +8078,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		builder.show();
 	}
 
-	void verify2FA(int type) {
-		if (type == CANCEL_ACCOUNT_2FA) {
-			megaApi.multiFactorAuthCancelAccount(pin, this);
-		}
-		else if (type == CHANGE_MAIL_2FA){
-			megaApi.multiFactorAuthChangeEmail(newMail, pin, this);
-		}
-		else if (type ==  DISABLE_2FA) {
-			megaApi.multiFactorAuthDisable(pin, this);
-		}
-	}
-
-	@Override
-	public void onFocusChange(View v, boolean hasFocus) {
-		switch (v.getId()) {
-			case R.id.pin_first_verify:{
-				if (hasFocus) {
-					firstPin.setText("");
-				}
-				break;
-			}
-			case R.id.pin_second_verify:{
-				if (hasFocus) {
-					secondPin.setText("");
-				}
-				break;
-			}
-			case R.id.pin_third_verify:{
-				if (hasFocus) {
-					thirdPin.setText("");
-				}
-				break;
-			}
-			case R.id.pin_fouth_verify:{
-				if (hasFocus) {
-					fourthPin.setText("");
-				}
-				break;
-			}
-			case R.id.pin_fifth_verify:{
-				if (hasFocus) {
-					fifthPin.setText("");
-				}
-				break;
-			}
-			case R.id.pin_sixth_verify:{
-				if (hasFocus) {
-					sixthPin.setText("");
-				}
-				break;
-			}
-		}
-	}
-
-	@Override
-	public boolean onLongClick(View v) {
-		switch (v.getId()){
-			case R.id.pin_first_verify:
-			case R.id.pin_second_verify:
-			case R.id.pin_third_verify:
-			case R.id.pin_fouth_verify:
-			case R.id.pin_fifth_verify:
-			case R.id.pin_sixth_verify: {
-				pinLongClick = true;
-				v.requestFocus();
-			}
-		}
-		return false;
-	}
-
-	void pasteClipboard() {
-		logDebug("pasteClipboard");
-		pinLongClick = false;
-		ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-		ClipData clipData = clipboard.getPrimaryClip();
-		if (clipData != null) {
-			String code = clipData.getItemAt(0).getText().toString();
-			if (code != null && code.length() == 6) {
-				boolean areDigits = true;
-				for (int i=0; i<6; i++) {
-					if (!Character.isDigit(code.charAt(i))) {
-						areDigits = false;
-						break;
-					}
-				}
-				if (areDigits) {
-					firstPin.setText(""+code.charAt(0));
-					secondPin.setText(""+code.charAt(1));
-					thirdPin.setText(""+code.charAt(2));
-					fourthPin.setText(""+code.charAt(3));
-					fifthPin.setText(""+code.charAt(4));
-					sixthPin.setText(""+code.charAt(5));
-				}
-				else {
-					firstPin.setText("");
-					secondPin.setText("");
-					thirdPin.setText("");
-					fourthPin.setText("");
-					fifthPin.setText("");
-					sixthPin.setText("");
-				}
-			}
-		}
-	}
-
-	public void showVerifyPin2FA(final int type){
-		verifyPin2FADialogType = type;
-		MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
-		LayoutInflater inflater = getLayoutInflater();
-		View v = inflater.inflate(R.layout.dialog_verify_2fa, null);
-		builder.setView(v);
-
-		TextView titleDialog = (TextView) v.findViewById(R.id.title_dialog_verify);
-		if (type == CANCEL_ACCOUNT_2FA){
-			titleDialog.setText(getString(R.string.cancel_account_verification));
-		}
-		else if (type == CHANGE_MAIL_2FA){
-			titleDialog.setText(getString(R.string.change_mail_verification));
-		}
-		else if (type == DISABLE_2FA) {
-			titleDialog.setText(getString(R.string.disable_2fa_verification));
-		}
-		lostYourDeviceButton = (RelativeLayout) v.findViewById(R.id.lost_authentication_device);
-		lostYourDeviceButton.setOnClickListener(this);
-		verify2faProgressBar = (ProgressBar) v.findViewById(R.id.progressbar_verify_2fa);
-
-		pinError = (TextView) v.findViewById(R.id.pin_2fa_error_verify);
-		pinError.setVisibility(View.GONE);
-
-		imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
-
-		firstPin = (EditTextPIN) v.findViewById(R.id.pin_first_verify);
-		firstPin.setOnLongClickListener(this);
-		firstPin.setOnFocusChangeListener(this);
-		imm.showSoftInput(firstPin, InputMethodManager.SHOW_FORCED);
-		firstPin.addTextChangedListener(new TextWatcher() {
-			@Override
-			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
-			}
-
-			@Override
-			public void onTextChanged(CharSequence s, int start, int before, int count) {
-
-			}
-
-			@Override
-			public void afterTextChanged(Editable s) {
-				if(firstPin.length() != 0){
-					secondPin.requestFocus();
-					secondPin.setCursorVisible(true);
-
-					if (isFirstTime2fa && !pinLongClick){
-						secondPin.setText("");
-						thirdPin.setText("");
-						fourthPin.setText("");
-						fifthPin.setText("");
-						sixthPin.setText("");
-					}
-					else if (pinLongClick) {
-						pasteClipboard();
-					}
-					else  {
-						permitVerify(type);
-					}
-				}
-				else {
-					if (isErrorShown){
-						verifyQuitError();
-					}
-				}
-			}
-		});
-
-		secondPin = (EditTextPIN) v.findViewById(R.id.pin_second_verify);
-		secondPin.setOnLongClickListener(this);
-		secondPin.setOnFocusChangeListener(this);
-		imm.showSoftInput(secondPin, InputMethodManager.SHOW_FORCED);
-		secondPin.addTextChangedListener(new TextWatcher() {
-			@Override
-			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
-			}
-
-			@Override
-			public void onTextChanged(CharSequence s, int start, int before, int count) {
-
-			}
-
-			@Override
-			public void afterTextChanged(Editable s) {
-				if (secondPin.length() != 0){
-					thirdPin.requestFocus();
-					thirdPin.setCursorVisible(true);
-
-					if (isFirstTime2fa && !pinLongClick) {
-						thirdPin.setText("");
-						fourthPin.setText("");
-						fifthPin.setText("");
-						sixthPin.setText("");
-					}
-					else if (pinLongClick) {
-						pasteClipboard();
-					}
-					else  {
-						permitVerify(type);
-					}
-				}
-				else {
-					if (isErrorShown){
-						verifyQuitError();
-					}
-				}
-			}
-		});
-
-		thirdPin = (EditTextPIN) v.findViewById(R.id.pin_third_verify);
-		thirdPin.setOnLongClickListener(this);
-		thirdPin.setOnFocusChangeListener(this);
-		imm.showSoftInput(thirdPin, InputMethodManager.SHOW_FORCED);
-		thirdPin.addTextChangedListener(new TextWatcher() {
-			@Override
-			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
-			}
-
-			@Override
-			public void onTextChanged(CharSequence s, int start, int before, int count) {
-
-			}
-
-			@Override
-			public void afterTextChanged(Editable s) {
-				if (thirdPin.length()!= 0){
-					fourthPin.requestFocus();
-					fourthPin.setCursorVisible(true);
-
-					if (isFirstTime2fa && !pinLongClick) {
-						fourthPin.setText("");
-						fifthPin.setText("");
-						sixthPin.setText("");
-					}
-					else if (pinLongClick) {
-						pasteClipboard();
-					}
-					else  {
-						permitVerify(type);
-					}
-				}
-				else {
-					if (isErrorShown){
-						verifyQuitError();
-					}
-				}
-			}
-		});
-
-		fourthPin = (EditTextPIN) v.findViewById(R.id.pin_fouth_verify);
-		fourthPin.setOnLongClickListener(this);
-		fourthPin.setOnFocusChangeListener(this);
-		imm.showSoftInput(fourthPin, InputMethodManager.SHOW_FORCED);
-		fourthPin.addTextChangedListener(new TextWatcher() {
-			@Override
-			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
-			}
-
-			@Override
-			public void onTextChanged(CharSequence s, int start, int before, int count) {
-
-			}
-
-			@Override
-			public void afterTextChanged(Editable s) {
-				if (fourthPin.length()!=0){
-					fifthPin.requestFocus();
-					fifthPin.setCursorVisible(true);
-
-					if (isFirstTime2fa && !pinLongClick) {
-						fifthPin.setText("");
-						sixthPin.setText("");
-					}
-					else if (pinLongClick) {
-						pasteClipboard();
-					}
-					else  {
-						permitVerify(type);
-					}
-				}
-				else {
-					if (isErrorShown){
-						verifyQuitError();
-					}
-				}
-			}
-		});
-
-		fifthPin = (EditTextPIN) v.findViewById(R.id.pin_fifth_verify);
-		fifthPin.setOnLongClickListener(this);
-		fifthPin.setOnFocusChangeListener(this);
-		imm.showSoftInput(fifthPin, InputMethodManager.SHOW_FORCED);
-		fifthPin.addTextChangedListener(new TextWatcher() {
-			@Override
-			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
-			}
-
-			@Override
-			public void onTextChanged(CharSequence s, int start, int before, int count) {
-
-			}
-
-			@Override
-			public void afterTextChanged(Editable s) {
-				if (fifthPin.length()!=0){
-					sixthPin.requestFocus();
-					sixthPin.setCursorVisible(true);
-
-					if (isFirstTime2fa && !pinLongClick) {
-						sixthPin.setText("");
-					}
-					else if (pinLongClick) {
-						pasteClipboard();
-					}
-					else  {
-						permitVerify(type);
-					}
-				}
-				else {
-					if (isErrorShown){
-						verifyQuitError();
-					}
-				}
-			}
-		});
-
-		sixthPin = (EditTextPIN) v.findViewById(R.id.pin_sixth_verify);
-		sixthPin.setOnLongClickListener(this);
-		sixthPin.setOnFocusChangeListener(this);
-		imm.showSoftInput(sixthPin, InputMethodManager.SHOW_FORCED);
-		sixthPin.addTextChangedListener(new TextWatcher() {
-			@Override
-			public void beforeTextChanged(CharSequence s, int start, int count, int after) {
-
-			}
-
-			@Override
-			public void onTextChanged(CharSequence s, int start, int before, int count) {
-
-			}
-
-			@Override
-			public void afterTextChanged(Editable s) {
-				if (sixthPin.length()!=0){
-					sixthPin.setCursorVisible(true);
-					hideKeyboard(managerActivity, 0);
-
-					if (pinLongClick) {
-						pasteClipboard();
-					}
-					else {
-						permitVerify(type);
-					}
-				}
-				else {
-					if (isErrorShown){
-						verifyQuitError();
-					}
-				}
-			}
-		});
-
-		firstPin.setGravity(Gravity.CENTER_HORIZONTAL);
-		android.view.ViewGroup.LayoutParams paramsb1 = firstPin.getLayoutParams();
-		if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
-			paramsb1.width = scaleWidthPx(42, outMetrics);
-		}
-		else {
-			paramsb1.width = scaleWidthPx(25, outMetrics);
-		}
-		firstPin.setLayoutParams(paramsb1);
-		LinearLayout.LayoutParams textParams = (LinearLayout.LayoutParams)firstPin.getLayoutParams();
-		textParams.setMargins(0, 0, scaleWidthPx(8, outMetrics), 0);
-		firstPin.setLayoutParams(textParams);
-
-		secondPin.setGravity(Gravity.CENTER_HORIZONTAL);
-		android.view.ViewGroup.LayoutParams paramsb2 = secondPin.getLayoutParams();
-		if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
-			paramsb2.width = scaleWidthPx(42, outMetrics);
-		}
-		else {
-			paramsb2.width = scaleWidthPx(25, outMetrics);
-		}
-		secondPin.setLayoutParams(paramsb2);
-		textParams = (LinearLayout.LayoutParams)secondPin.getLayoutParams();
-		textParams.setMargins(0, 0, scaleWidthPx(8, outMetrics), 0);
-		secondPin.setLayoutParams(textParams);
-		secondPin.setEt(firstPin);
-
-		thirdPin.setGravity(Gravity.CENTER_HORIZONTAL);
-		android.view.ViewGroup.LayoutParams paramsb3 = thirdPin.getLayoutParams();
-		if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
-			paramsb3.width = scaleWidthPx(42, outMetrics);
-		}
-		else {
-			paramsb3.width = scaleWidthPx(25, outMetrics);
-		}
-		thirdPin.setLayoutParams(paramsb3);
-		textParams = (LinearLayout.LayoutParams)thirdPin.getLayoutParams();
-		textParams.setMargins(0, 0, scaleWidthPx(25, outMetrics), 0);
-		thirdPin.setLayoutParams(textParams);
-		thirdPin.setEt(secondPin);
-
-		fourthPin.setGravity(Gravity.CENTER_HORIZONTAL);
-		android.view.ViewGroup.LayoutParams paramsb4 = fourthPin.getLayoutParams();
-		if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
-			paramsb4.width = scaleWidthPx(42, outMetrics);
-		}
-		else {
-			paramsb4.width = scaleWidthPx(25, outMetrics);
-		}
-		fourthPin.setLayoutParams(paramsb4);
-		textParams = (LinearLayout.LayoutParams)fourthPin.getLayoutParams();
-		textParams.setMargins(0, 0, scaleWidthPx(8, outMetrics), 0);
-		fourthPin.setLayoutParams(textParams);
-		fourthPin.setEt(thirdPin);
-
-		fifthPin.setGravity(Gravity.CENTER_HORIZONTAL);
-		android.view.ViewGroup.LayoutParams paramsb5 = fifthPin.getLayoutParams();
-		if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
-			paramsb5.width = scaleWidthPx(42, outMetrics);
-		}
-		else {
-			paramsb5.width = scaleWidthPx(25, outMetrics);
-		}
-		fifthPin.setLayoutParams(paramsb5);
-		textParams = (LinearLayout.LayoutParams)fifthPin.getLayoutParams();
-		textParams.setMargins(0, 0, scaleWidthPx(8, outMetrics), 0);
-		fifthPin.setLayoutParams(textParams);
-		fifthPin.setEt(fourthPin);
-
-		sixthPin.setGravity(Gravity.CENTER_HORIZONTAL);
-		android.view.ViewGroup.LayoutParams paramsb6 = sixthPin.getLayoutParams();
-		if (getResources().getConfiguration().orientation == Configuration.ORIENTATION_PORTRAIT) {
-			paramsb6.width = scaleWidthPx(42, outMetrics);
-		}
-		else {
-			paramsb6.width = scaleWidthPx(25, outMetrics);
-		}
-		sixthPin.setLayoutParams(paramsb6);
-		textParams = (LinearLayout.LayoutParams)sixthPin.getLayoutParams();
-		textParams.setMargins(0, 0, 0, 0);
-		sixthPin.setLayoutParams(textParams);
-		sixthPin.setEt(fifthPin);
-
-		verify2FADialog = builder.create();
-		verify2FADialog.setOnDismissListener(new DialogInterface.OnDismissListener() {
-			@Override
-			public void onDismiss(DialogInterface dialog) {
-				verify2FADialogIsShown = false;
-			}
-		});
-
-        Window window = verify2FADialog.getWindow();
-        window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-
-		verify2FADialog.show();
-		verify2FADialogIsShown = true;
-	}
-
-	void verifyQuitError(){
-		isErrorShown = false;
-		pinError.setVisibility(View.GONE);
-		firstPin.setTextColor(ContextCompat.getColor(this, R.color.grey_087_white_087));
-		secondPin.setTextColor(ContextCompat.getColor(this, R.color.grey_087_white_087));
-		thirdPin.setTextColor(ContextCompat.getColor(this, R.color.grey_087_white_087));
-		fourthPin.setTextColor(ContextCompat.getColor(this, R.color.grey_087_white_087));
-		fifthPin.setTextColor(ContextCompat.getColor(this, R.color.grey_087_white_087));
-		sixthPin.setTextColor(ContextCompat.getColor(this, R.color.grey_087_white_087));
-	}
-
-	void verifyShowError(){
-		logWarning("Pin not correct verifyShowError");
-		isFirstTime2fa = false;
-		isErrorShown = true;
-		pinError.setVisibility(View.VISIBLE);
-		firstPin.setTextColor(ContextCompat.getColor(this, R.color.red_600_red_300));
-		secondPin.setTextColor(ContextCompat.getColor(this, R.color.red_600_red_300));
-		thirdPin.setTextColor(ContextCompat.getColor(this, R.color.red_600_red_300));
-		fourthPin.setTextColor(ContextCompat.getColor(this, R.color.red_600_red_300));
-		fifthPin.setTextColor(ContextCompat.getColor(this, R.color.red_600_red_300));
-		sixthPin.setTextColor(ContextCompat.getColor(this, R.color.red_600_red_300));
-	}
-
-	void permitVerify(int type){
-		logDebug("permitVerify");
-		if (firstPin.length() == 1 && secondPin.length() == 1 && thirdPin.length() == 1 && fourthPin.length() == 1 && fifthPin.length() == 1 && sixthPin.length() == 1){
-			hideKeyboard(managerActivity, 0);
-			if (sb.length()>0) {
-				sb.delete(0, sb.length());
-			}
-			sb.append(firstPin.getText());
-			sb.append(secondPin.getText());
-			sb.append(thirdPin.getText());
-			sb.append(fourthPin.getText());
-			sb.append(fifthPin.getText());
-			sb.append(sixthPin.getText());
-			pin = sb.toString();
-			if (!isErrorShown && pin != null) {
-				verify2faProgressBar.setVisibility(View.VISIBLE);
-				verify2FA(type);
-			}
-		}
-	}
-
 	private void showOpenLinkError(boolean show, int error) {
 		if (openLinkDialog != null) {
 			if (show) {
@@ -8872,7 +8257,15 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			});
 			openLinkDialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener((view) ->
 					dismissOpenLinkDialog());
-		}catch (Exception e){}
+			openLinkDialog.setOnKeyListener((dialog, keyCode, event) -> {
+				if (keyCode == KeyEvent.KEYCODE_BACK && event.getRepeatCount() == 0) {
+					dismissOpenLinkDialog();
+				}
+				return true;
+			});
+		} catch (Exception e) {
+			logError("Exception showing Open Link dialog", e);
+		}
 	}
 
 	public void showChatLink(String link) {
@@ -9095,6 +8488,13 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	@Override
 	public void showNewFolderDialog() {
 		MegaNodeDialogUtil.showNewFolderDialog(this, this);
+	}
+
+	@Override
+	public void showNewTextFileDialog(String typedName) {
+		newTextFileDialog = MegaNodeDialogUtil.showNewTxtFileDialog(this,
+				getCurrentParentNode(getCurrentParentHandle(), INVALID_VALUE), typedName,
+				drawerItem == DrawerItem.HOMEPAGE);
 	}
 
 	public long getParentHandleBrowser() {
@@ -9417,6 +8817,15 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	}
 
 	/**
+	 * Save nodes to gallery.
+	 *
+	 * @param nodes nodes to save
+	 */
+	public void saveNodesToGallery(List<MegaNode> nodes) {
+		nodeSaver.saveNodes(nodes, false, false, false, true, true);
+	}
+
+	/**
 	 * Save nodes to device.
 	 *
 	 * @param handles handles of nodes to save
@@ -9493,7 +8902,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 							showSnackbar(SNACKBAR_TYPE, getString(R.string.error_server_connection_problem), -1);
 							return;
 						}
-						nC.removeLink(finalNode, new ExportListener(managerActivity, ACTION_REMOVE_LINK, 1));
+						nC.removeLink(finalNode, new ExportListener(managerActivity, 1));
 					} else {
 						nC.removeLinks(nodes);
 					}
@@ -9592,14 +9001,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		selectDrawerItemLollipop(drawerItem);
 	}
 
-	public void secondaryMediaUploadsClicked(){
-		logDebug("secondaryMediaUploadsClicked");
-		drawerItem = DrawerItem.MEDIA_UPLOADS;
-		setBottomNavigationMenuItemChecked(HIDDEN_BNV);
-		selectDrawerItemLollipop(drawerItem);
-	}
-
 	public void skipInitialCUSetup() {
+		setFirstLogin(false);
 		drawerItem = DrawerItem.HOMEPAGE;
 		setBottomNavigationMenuItemChecked(HOMEPAGE_BNV);
 		selectDrawerItemLollipop(drawerItem);
@@ -9608,8 +9011,115 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	public void refreshCameraUpload(){
 		drawerItem = DrawerItem.CAMERA_UPLOADS;
 		setBottomNavigationMenuItemChecked(CAMERA_UPLOADS_BNV);
-
+		setToolbarTitle();
 		refreshFragment(FragmentTag.CAMERA_UPLOADS.getTag());
+	}
+
+	/**
+	 * Checks if should update some cu view visibility.
+	 *
+	 * @param visibility New requested visibility update.
+	 * @return True if should apply the visibility update, false otherwise.
+	 */
+	private boolean rightCUVisibilityChange(int visibility) {
+		return drawerItem == DrawerItem.CAMERA_UPLOADS || visibility == View.GONE;
+	}
+
+	/**
+	 * Updates cuViewTypes view visibility.
+	 *
+	 * @param visibility New visibility value to set.
+	 */
+	public void updateCUViewTypes(int visibility) {
+		if (rightCUVisibilityChange(visibility)) {
+			cuViewTypes.setVisibility(visibility);
+		}
+	}
+
+	/**
+	 * Updates cuLayout view visibility.
+	 *
+	 * @param visibility New visibility value to set.
+	 */
+	public void updateCULayout(int visibility) {
+		if (rightCUVisibilityChange(visibility)) {
+			cuLayout.setVisibility(visibility);
+		}
+	}
+
+	/**
+	 * Updates enableCUButton view visibility and cuLayout if needed.
+	 *
+	 * @param visibility New visibility value to set.
+	 */
+	public void updateEnableCUButton(int visibility) {
+		if (enableCUButton.getVisibility() == visibility) {
+			return;
+		}
+
+		if ((visibility == View.GONE && cuProgressBar.getVisibility() == View.GONE)
+				|| (visibility == View.VISIBLE && cuLayout.getVisibility() == View.GONE)) {
+			updateCULayout(visibility);
+		}
+
+		if (rightCUVisibilityChange(visibility)) {
+			enableCUButton.setVisibility(visibility);
+		}
+	}
+
+	/**
+	 * Hides the CU progress bar.
+	 */
+	public void hideCUProgress() {
+		cuProgressBar.setVisibility(View.GONE);
+	}
+
+	/**
+	 * Updates the CU progress view.
+	 *
+	 * @param progress The current progress.
+	 * @param pending  The number of pending uploads.
+	 */
+	public void updateCUProgress(int progress, int pending) {
+		if (drawerItem != DrawerItem.CAMERA_UPLOADS || getCameraUploadFragment() == null
+				|| !cuFragment.shouldShowFullInfoAndOptions()) {
+			return;
+		}
+
+		boolean visible = pending > 0;
+		int visibility = visible ? View.VISIBLE : View.GONE;
+
+		if ((!visible && enableCUButton.getVisibility() == View.GONE)
+				|| (visible && cuLayout.getVisibility() == View.GONE)) {
+			updateCULayout(visibility);
+		}
+
+		if (getCameraUploadFragment() != null) {
+			cuFragment.updateProgress(visibility, pending);
+		}
+
+		cuProgressBar.setVisibility(visibility);
+		cuProgressBar.setProgress(progress);
+	}
+
+	/**
+	 * Shows or hides the cuLayout and animates the transition.
+	 *
+	 * @param hide True if should hide it, false if should show it.
+	 */
+	public void animateCULayout(boolean hide) {
+		boolean visible = cuLayout.getVisibility() == View.VISIBLE;
+		if ((hide && !visible) || !hide && visible) {
+			return;
+		}
+
+		if (hide) {
+			cuLayout.animate().translationY(-100).setDuration(ANIMATION_DURATION)
+					.withEndAction(() -> cuLayout.setVisibility(View.GONE)).start();
+		} else if (drawerItem == DrawerItem.CAMERA_UPLOADS) {
+			cuLayout.setVisibility(View.VISIBLE);
+			cuLayout.animate().translationY(0).setDuration(ANIMATION_DURATION).start();
+		}
 	}
 
 	/**
@@ -9661,11 +9171,17 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		bottomSheetDialogFragment.show(getSupportFragmentManager(), bottomSheetDialogFragment.getTag());
 	}
 
-	public void showNewSortByPanel() {
+	public void showNewSortByPanel(int orderType) {
+		showNewSortByPanel(orderType, false);
+	}
+
+	public void showNewSortByPanel(int orderType, boolean isIncomingRootOrder) {
 		if (isBottomSheetDialogShown(bottomSheetDialogFragment)) {
 			return;
 		}
-		bottomSheetDialogFragment = new SortByBottomSheetDialogFragment();
+
+		bottomSheetDialogFragment = SortByBottomSheetDialogFragment.newInstance(orderType, isIncomingRootOrder);
+
 		bottomSheetDialogFragment.show(getSupportFragmentManager(),
 				bottomSheetDialogFragment.getTag());
 	}
@@ -9719,8 +9235,21 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		bottomSheetDialogFragment.show(getSupportFragmentManager(), bottomSheetDialogFragment.getTag());
 	}
 
+	/**
+	 * Shows the GENERAL_UPLOAD upload bottom sheet fragment.
+	 */
 	public void showUploadPanel() {
-		logDebug("showUploadPanel");
+		showUploadPanel(drawerItem == DrawerItem.HOMEPAGE ? HOMEPAGE_UPLOAD : GENERAL_UPLOAD);
+	}
+
+	/**
+	 * Shows the upload bottom sheet fragment taking into account the upload type received as param.
+	 *
+	 * @param uploadType Indicates the type of upload:
+	 *                   - GENERAL_UPLOAD if nothing special has to be taken into account.
+	 *                   - DOCUMENTS_UPLOAD if an upload from Documents section.
+	 */
+	public void showUploadPanel(int uploadType) {
 		if (!hasPermissions(this, Manifest.permission.WRITE_EXTERNAL_STORAGE)) {
 			requestPermission(this, REQUEST_READ_WRITE_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE);
 			return;
@@ -9728,8 +9257,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 		if (isBottomSheetDialogShown(bottomSheetDialogFragment)) return;
 
-        bottomSheetDialogFragment = new UploadBottomSheetDialogFragment();
-        bottomSheetDialogFragment.show(getSupportFragmentManager(), bottomSheetDialogFragment.getTag());
+		bottomSheetDialogFragment = UploadBottomSheetDialogFragment.newInstance(uploadType);
+		bottomSheetDialogFragment.show(getSupportFragmentManager(), bottomSheetDialogFragment.getTag());
 	}
 
 	public void updateAccountDetailsVisibleInfo(){
@@ -9750,7 +9279,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		}
 
 		if (usedSpaceLayout != null) {
-			if (!info.isBusinessStatusReceived() || megaApi.isBusinessAccount()) {
+			if (megaApi.isBusinessAccount()) {
 				usedSpaceLayout.setVisibility(View.GONE);
 				upgradeAccount.setVisibility(View.GONE);
 				if (settingsSeparator != null) {
@@ -9832,16 +9361,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
         usedSpacePB.setProgressDrawable(drawable);
 	}
 
-	public void selectSortByContacts(int _orderContacts){
-		logDebug("selectSortByContacts");
-
-		if (getOrderContacts() == _orderContacts) {
-			return;
-		}
-
-		this.setOrderContacts(_orderContacts);
-		cFLol = (ContactsFragmentLollipop) getSupportFragmentManager().findFragmentByTag(FragmentTag.CONTACTS.getTag());
-		if (cFLol != null){
+	public void refreshContactsOrder() {
+		if (getContactsFragment() != null) {
 			cFLol.sortBy();
 		}
 	}
@@ -9861,12 +9382,12 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		if (isCloudAdded()) {
 			ArrayList<MegaNode> nodes;
 			if (parentHandleBrowser == -1) {
-				nodes = megaApi.getChildren(parentNode, orderCloud);
+				nodes = megaApi.getChildren(parentNode, sortOrderManagement.getOrderCloud());
 			} else {
 				parentNode = megaApi.getNodeByHandle(parentHandleBrowser);
 				if (parentNode == null) return;
 
-				nodes = megaApi.getChildren(parentNode, orderCloud);
+				nodes = megaApi.getChildren(parentNode, sortOrderManagement.getOrderCloud());
 			}
 			logDebug("Nodes: " + nodes.size());
 			fbFLol.hideMultipleSelect();
@@ -9882,11 +9403,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		}
 	}
 
-	public void refreshCloudOrder(int newOrderCloud){
-		logDebug("New order: " + newOrderCloud);
-		this.setOrderCloud(newOrderCloud);
-
-		LiveEventBus.get(EVENT_ORDER_CHANGE, Integer.class).post(orderCloud);
+	public void refreshCloudOrder(int order) {
+		LiveEventBus.get(EVENT_ORDER_CHANGE, Integer.class).post(order);
 
 		//Refresh Cloud Fragment
 		refreshCloudDrive();
@@ -9896,10 +9414,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 		onNodesSharedUpdate();
 
-		if (getInboxFragment() != null){
+		if (getInboxFragment() != null) {
 			MegaNode inboxNode = megaApi.getInboxNode();
-			if(inboxNode!=null){
-				ArrayList<MegaNode> nodes = megaApi.getChildren(inboxNode, orderCloud);
+			if (inboxNode != null) {
+				ArrayList<MegaNode> nodes = megaApi.getChildren(inboxNode, order);
 				iFLol.setNodes(nodes);
 				iFLol.getRecyclerView().invalidate();
 			}
@@ -9908,34 +9426,14 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		refreshSearch();
 	}
 
-	public void refreshOthersOrder(int newOrderOthers){
-		if (getOrderOthers() == newOrderOthers) {
-			return;
-		}
-
-		logDebug("New order: " + newOrderOthers);
-
-		this.setOrderOthers(newOrderOthers);
-
+	public void refreshOthersOrder(){
 		refreshSharesPageAdapter();
-
 		refreshSearch();
 	}
 
-	public void selectSortUploads(int orderCamera) {
-		logDebug("selectSortUploads");
-
-		setOrderCamera(orderCamera);
-		cuFragment = (CameraUploadsFragment) getSupportFragmentManager().findFragmentByTag(
-				FragmentTag.CAMERA_UPLOADS.getTag());
-		if (cuFragment != null) {
-			cuFragment.setOrderBy(orderCamera);
-		}
-
-		muFragment = (CameraUploadsFragment) getSupportFragmentManager().findFragmentByTag(
-				FragmentTag.MEDIA_UPLOADS.getTag());
-		if (muFragment != null) {
-			muFragment.setOrderBy(orderCamera);
+	public void refreshCUNodes() {
+		if (getCameraUploadFragment() != null) {
+			cuFragment.reloadNodes();
 		}
 	}
 
@@ -10184,15 +9682,14 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			}
 			case R.id.lost_authentication_device: {
 				try {
-					String url = "https://mega.nz/recovery";
 					Intent openTermsIntent = new Intent(this, WebViewActivity.class);
 					openTermsIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-					openTermsIntent.setData(Uri.parse(url));
+					openTermsIntent.setData(Uri.parse(RECOVERY_URL));
 					startActivity(openTermsIntent);
 				}
 				catch (Exception e){
 					Intent viewIntent = new Intent(Intent.ACTION_VIEW);
-					viewIntent.setData(Uri.parse("https://mega.nz/recovery"));
+					viewIntent.setData(Uri.parse(RECOVERY_URL));
 					startActivity(viewIntent);
 				}
 				break;
@@ -10412,7 +9909,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				ProgressDialog temp = null;
 				try{
 					temp = new ProgressDialog(this);
-					temp.setMessage(getString(R.string.upload_prepare));
+					temp.setMessage(getQuantityString(R.plurals.upload_prepare, 1));
 					temp.show();
 				}
 				catch(Exception e){
@@ -10474,29 +9971,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			}
 
 			nodeAttacher.handleSelectFileResult(intent, this);
-		}
-		else if(requestCode == ACTION_SEARCH_BY_DATE && resultCode == RESULT_OK) {
-			if (intent == null) {
-				logWarning("Intent NULL");
-				return;
-			}
-			searchDate = intent.getLongArrayExtra("SELECTED_DATE");
-
-			cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-					.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-			if (cuFragment != null && searchDate != null) {
-				cuFragment.setSearchDate(searchDate, orderCamera);
-				isSearchEnabled = true;
-				setToolbarTitle();
-			}
-
-			muFragment = (CameraUploadsFragment) getSupportFragmentManager()
-					.findFragmentByTag(FragmentTag.MEDIA_UPLOADS.getTag());
-			if (muFragment != null && searchDate != null) {
-				muFragment.setSearchDate(searchDate, orderCamera);
-				isSearchEnabled = true;
-				setToolbarTitle();
-			}
 		}
 		else if (requestCode == REQUEST_CODE_SELECT_FOLDER && resultCode == RESULT_OK) {
 			logDebug("REQUEST_CODE_SELECT_FOLDER");
@@ -10625,20 +10099,14 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			if (drawerItem == DrawerItem.CLOUD_DRIVE){
 				parentHandleBrowser = intent.getLongExtra("PARENT_HANDLE", -1);
 				MegaNode parentNode = megaApi.getNodeByHandle(parentHandleBrowser);
-				if (parentNode != null){
-					if (isCloudAdded()){
-						ArrayList<MegaNode> nodes = megaApi.getChildren(parentNode, orderCloud);
-						fbFLol.setNodes(nodes);
-						fbFLol.getRecyclerView().invalidate();
-					}
-				}
-				else{
-					if (isCloudAdded()){
-						ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getRootNode(), orderCloud);
-						fbFLol.setNodes(nodes);
-						fbFLol.getRecyclerView().invalidate();
-					}
-				}
+
+				ArrayList<MegaNode> nodes = megaApi.getChildren(parentNode != null
+								? parentNode
+								: megaApi.getRootNode(),
+						sortOrderManagement.getOrderCloud());
+
+				fbFLol.setNodes(nodes);
+				fbFLol.getRecyclerView().invalidate();
 			}
 			else if (drawerItem == DrawerItem.SHARED_ITEMS){
 				refreshIncomingShares();
@@ -10658,20 +10126,14 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			if (drawerItem == DrawerItem.CLOUD_DRIVE){
 				parentHandleBrowser = intent.getLongExtra("PARENT_HANDLE", -1);
 				MegaNode parentNode = megaApi.getNodeByHandle(parentHandleBrowser);
-				if (parentNode != null){
-					if (isCloudAdded()){
-						ArrayList<MegaNode> nodes = megaApi.getChildren(parentNode, orderCloud);
-						fbFLol.setNodes(nodes);
-						fbFLol.getRecyclerView().invalidate();
-					}
-				}
-				else{
-					if (isCloudAdded()){
-						ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getRootNode(), orderCloud);
-						fbFLol.setNodes(nodes);
-						fbFLol.getRecyclerView().invalidate();
-					}
-				}
+
+				ArrayList<MegaNode> nodes = megaApi.getChildren(parentNode != null
+								? parentNode
+								: megaApi.getRootNode(),
+						sortOrderManagement.getOrderCloud());
+
+				fbFLol.setNodes(nodes);
+				fbFLol.getRecyclerView().invalidate();
 			}
 			else if (drawerItem == DrawerItem.SHARED_ITEMS){
 				refreshIncomingShares();
@@ -10831,7 +10293,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				if (StringResourcesUtils.getString(R.string.section_chat).equals(savedDestination)) {
                     fileIntent.setAction(FileExplorerActivityLollipop.ACTION_UPLOAD_TO_CHAT);
                 } else {
-                    fileIntent.setAction(FileExplorerActivityLollipop.ACTION_UPLOAD_TO_CLOUD);
+                    fileIntent.setAction(FileExplorerActivityLollipop.ACTION_SAVE_TO_CLOUD);
+                    fileIntent.putExtra(FileExplorerActivityLollipop.EXTRA_PARENT_HANDLE, getCurrentParentHandle());
                 }
                 fileIntent.putExtra(Intent.EXTRA_STREAM, intent.getData());
                 fileIntent.setType(intent.getType());
@@ -12305,53 +11768,24 @@ public class ManagerActivityLollipop extends SorterContentActivity
 					mStorageFLol.refreshVersionsInfo();
 				}
 			}
-		}
-		else if(request.getType() == MegaRequest.TYPE_GET_CHANGE_EMAIL_LINK) {
-			logDebug("TYPE_GET_CHANGE_EMAIL_LINK: " + request.getEmail());
-			if (verify2faProgressBar != null) {
-				verify2faProgressBar.setVisibility(View.GONE);
-			}
-			if (e.getErrorCode() == MegaError.API_OK){
-				logDebug("The change link has been sent");
+        } else if (request.getType() == MegaRequest.TYPE_GET_CHANGE_EMAIL_LINK) {
+            logDebug("TYPE_GET_CHANGE_EMAIL_LINK: " + request.getEmail());
+            hideKeyboard(managerActivity, 0);
 
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null && verify2FADialog.isShowing()) {
-					verify2FADialog.dismiss();
-				}
-				showAlert(this, getString(R.string.email_verification_text_change_mail), getString(R.string.email_verification_title));
-			}
-			else if(e.getErrorCode() == MegaError.API_EACCESS){
-				logWarning("The new mail already exists");
-
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null && verify2FADialog.isShowing()) {
-					verify2FADialog.dismiss();
-				}
-				showAlert(this, getString(R.string.mail_already_used), getString(R.string.email_verification_title));
-			}
-			else if(e.getErrorCode() == MegaError.API_EEXIST){
-				logWarning("Email change already requested (confirmation link already sent).");
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null && verify2FADialog.isShowing()) {
-					verify2FADialog.dismiss();
-				}
-				showAlert(this, getString(R.string.mail_changed_confirm_requested), getString(R.string.email_verification_title));
-			}
-			else if (e.getErrorCode() == MegaError.API_EFAILED || e.getErrorCode() == MegaError.API_EEXPIRED){
-				if (is2FAEnabled()){
-					verifyShowError();
-				}
-			}
-			else{
-				logError("Error when asking for change mail link: " + e.getErrorString() + "___" + e.getErrorCode());
-
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null && verify2FADialog.isShowing()) {
-					verify2FADialog.dismiss();
-				}
-				showAlert(this, getString(R.string.general_text_error), getString(R.string.general_error_word));
-			}
-		}
+            if (e.getErrorCode() == MegaError.API_OK) {
+                logDebug("The change link has been sent");
+                showAlert(this, getString(R.string.email_verification_text_change_mail), getString(R.string.email_verification_title));
+            } else if (e.getErrorCode() == MegaError.API_EACCESS) {
+                logWarning("The new mail already exists");
+                showAlert(this, getString(R.string.mail_already_used), getString(R.string.email_verification_title));
+            } else if (e.getErrorCode() == MegaError.API_EEXIST) {
+                logWarning("Email change already requested (confirmation link already sent).");
+                showAlert(this, getString(R.string.mail_changed_confirm_requested), getString(R.string.email_verification_title));
+            } else {
+                logError("Error when asking for change mail link: " + e.getErrorString() + "___" + e.getErrorCode());
+                showAlert(this, getString(R.string.general_text_error), getString(R.string.general_error_word));
+            }
+        }
 		else if(request.getType() == MegaRequest.TYPE_CONFIRM_CHANGE_EMAIL_LINK){
 			logDebug("CONFIRM_CHANGE_EMAIL_LINK: " + request.getEmail());
 			if(e.getErrorCode() == MegaError.API_OK){
@@ -12400,35 +11834,17 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				logError("Error when asking for recovery pass link: " + e.getErrorString() + "___" + e.getErrorCode());
 				showAlert(this, getString(R.string.general_text_error), getString(R.string.general_error_word));
 			}
-		}
-		else if(request.getType() == MegaRequest.TYPE_GET_CANCEL_LINK){
-			logDebug("TYPE_GET_CANCEL_LINK");
-			if (verify2faProgressBar != null) {
-				verify2faProgressBar.setVisibility(View.GONE);
-			}
-			if (e.getErrorCode() == MegaError.API_OK){
-				logDebug("Cancelation link received!");
+        } else if (request.getType() == MegaRequest.TYPE_GET_CANCEL_LINK) {
+            logDebug("TYPE_GET_CANCEL_LINK");
+            hideKeyboard(managerActivity, 0);
 
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null && verify2FADialog.isShowing()) {
-					verify2FADialog.dismiss();
-				}
-				showAlert(this, getString(R.string.email_verification_text), getString(R.string.email_verification_title));
-			}
-			else if (e.getErrorCode() == MegaError.API_EFAILED || e.getErrorCode() == MegaError.API_EEXPIRED){
-				if (is2FAEnabled()){
-					verifyShowError();
-				}
-			}
-			else{
-				logError("Error when asking for the cancelation link: " + e.getErrorString() + "___" + e.getErrorCode());
-
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null && verify2FADialog.isShowing()){
-					verify2FADialog.dismiss();
-				}
-				showAlert(this, getString(R.string.general_text_error), getString(R.string.general_error_word));
-			}
+            if (e.getErrorCode() == MegaError.API_OK) {
+                logDebug("Cancelation link received!");
+                showAlert(this, getString(R.string.email_verification_text), getString(R.string.email_verification_title));
+            } else {
+                logError("Error when asking for the cancelation link: " + e.getErrorString() + "___" + e.getErrorCode());
+                showAlert(this, getString(R.string.general_text_error), getString(R.string.general_error_word));
+            }
         }
 		else if(request.getType() == MegaRequest.TYPE_CONFIRM_CANCEL_LINK){
 			if (e.getErrorCode() == MegaError.API_OK){
@@ -12713,7 +12129,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 				if (drawerItem == DrawerItem.CLOUD_DRIVE){
 					if (isCloudAdded()){
-						ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getNodeByHandle(parentHandleBrowser), orderCloud);
+						ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getNodeByHandle(parentHandleBrowser),
+								sortOrderManagement.getOrderCloud());
 						fbFLol.setNodes(nodes);
 						fbFLol.getRecyclerView().invalidate();
 					}
@@ -12751,7 +12168,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
                 showSnackbar(SNACKBAR_TYPE, getString(R.string.context_folder_created), -1);
 				if (drawerItem == DrawerItem.CLOUD_DRIVE){
 					if (isCloudAdded()){
-						ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getNodeByHandle(parentHandleBrowser), orderCloud);
+						ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getNodeByHandle(parentHandleBrowser),
+								sortOrderManagement.getOrderCloud());
 						fbFLol.setNodes(nodes);
 						fbFLol.getRecyclerView().invalidate();
 					}
@@ -12784,48 +12202,18 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			}
 		}
 		else if (request.getType() == MegaRequest.TYPE_MULTI_FACTOR_AUTH_CHECK) {
+			// Re-enable 2fa switch first.
+			if (getSettingsFragment() != null) {
+				sttFLol.reEnable2faSwitch();
+			}
+
 			if (e.getErrorCode() == MegaError.API_OK) {
-				if (request.getFlag()) {
-					is2FAEnabled = true;
-				} else {
-					is2FAEnabled = false;
-				}
+				is2FAEnabled = request.getFlag();
+
 				if (getSettingsFragment() != null) {
 					sttFLol.update2FAPreference(is2FAEnabled);
 				}
 			}
-		}
-		else if (request.getType() == MegaRequest.TYPE_MULTI_FACTOR_AUTH_SET){
-			logDebug("TYPE_MULTI_FACTOR_AUTH_SET: " + e.getErrorCode());
-			if (verify2faProgressBar != null) {
-				verify2faProgressBar.setVisibility(View.GONE);
-			}
-			if (!request.getFlag() && e.getErrorCode() == MegaError.API_OK){
-				logDebug("Pin correct: Two-Factor Authentication disabled");
-				is2FAEnabled = false;
-				if (getSettingsFragment() != null) {
-					sttFLol.update2FAPreference(false);
-					showSnackbar(SNACKBAR_TYPE, getString(R.string.label_2fa_disabled), -1);
-				}
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null) {
-					verify2FADialog.dismiss();
-				}
-			}
-			else if (e.getErrorCode() == MegaError.API_EFAILED){
-				logWarning("Pin not correct");
-				verifyShowError();
-			}
-			else {
-				hideKeyboard(managerActivity, 0);
-				if (verify2FADialog != null) {
-					verify2FADialog.dismiss();
-				}
-				showSnackbar(SNACKBAR_TYPE, getString(R.string.error_disable_2fa), -1);
-				logError("An error ocurred trying to disable Two-Factor Authentication");
-			}
-
-			megaApi.multiFactorAuthCheck(megaApi.getMyEmail(), this);
 		}
 		else if(request.getType() == MegaRequest.TYPE_FOLDER_INFO) {
 			if (e.getErrorCode() == MegaError.API_OK) {
@@ -13124,17 +12512,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		}
 	}
 
-	public long[] getTypeOfSearch(){
-		return  searchDate;
-	}
-
-	public boolean getIsSearchEnabled(){
-		return  isSearchEnabled;
-	}
-	public void setIsSearchEnabled(boolean isSearchEnabled){
-		this.isSearchEnabled = isSearchEnabled;
-	}
-
 	public void onNodesCloudDriveUpdate() {
 		logDebug("onNodesCloudDriveUpdate");
 
@@ -13145,7 +12522,8 @@ public class ManagerActivityLollipop extends SorterContentActivity
 			if (isClearRubbishBin) {
 				isClearRubbishBin = false;
 				parentHandleRubbish = megaApi.getRubbishNode().getHandle();
-				ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getRubbishNode(), orderCloud);
+				ArrayList<MegaNode> nodes = megaApi.getChildren(megaApi.getRubbishNode(),
+						sortOrderManagement.getOrderCloud());
 				rubbishBinFLol.setNodes(nodes);
 				rubbishBinFLol.getRecyclerView().invalidate();
 			} else {
@@ -13259,17 +12637,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 		checkCameraUploadFolder(false,updatedNodes);
 
-		cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
-				.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-		if (cuFragment != null) {
-			cuFragment.reloadNodes(orderCamera);
-		}
-
-		muFragment = (CameraUploadsFragment) getSupportFragmentManager()
-				.findFragmentByTag(FragmentTag.MEDIA_UPLOADS.getTag());
-		if (muFragment != null) {
-			muFragment.reloadNodes(orderCamera);
-		}
+		refreshCUNodes();
 
 		LiveEventBus.get(EVENT_NODES_CHANGE).post(true);
 
@@ -13581,50 +12949,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		return askPermissions;
 	}
 
-	public void setOrderCloud(int orderCloud) {
-		logDebug("setOrderCloud");
-		this.orderCloud = orderCloud;
-		if(prefs!=null){
-			prefs.setPreferredSortCloud(String.valueOf(orderCloud));
-		}
-		dbH.setPreferredSortCloud(String.valueOf(orderCloud));
-	}
-
-	public int getOrderContacts() {
-		return orderContacts;
-	}
-
-	public void setOrderContacts(int orderContacts) {
-		logDebug("setOrderContacts");
-		this.orderContacts = orderContacts;
-		if(prefs!=null) {
-			prefs.setPreferredSortContacts(String.valueOf(orderContacts));
-		}
-		dbH.setPreferredSortContacts(String.valueOf(orderContacts));
-	}
-
-    public void setOrderCamera(int orderCamera) {
-        logDebug("setOrderCamera");
-        this.orderCamera = orderCamera;
-        if (prefs != null) {
-            prefs.setPreferredSortCameraUpload(String.valueOf(orderCamera));
-        }
-        dbH.setPreferredSortCameraUpload(String.valueOf(orderCamera));
-    }
-
-	public int getOrderOthers() {
-		return orderOthers;
-	}
-
-	public void setOrderOthers(int orderOthers) {
-		logDebug("setOrderOthers");
-		this.orderOthers = orderOthers;
-		if(prefs!=null) {
-			prefs.setPreferredSortOthers(String.valueOf(orderOthers));
-		}
-		dbH.setPreferredSortOthers(String.valueOf(orderOthers));
-	}
-
 	public String getPathNavigationOffline() {
 		return pathNavigationOffline;
 	}
@@ -13747,23 +13071,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	}
 
 	/**
-	 * Updates the fabButton position depending on if the bottom navigation view is shown or not
-	 * and shows it.
-	 *
-	 * @param withBottomNavigationView	true if the bottom navigation view is shown, false otherwise
+	 * Updates the fabButton icon and shows it.
 	 */
-	private void updateFabPositionAndShow(boolean withBottomNavigationView) {
+	private void updateFabAndShow() {
 		fabButton.setImageDrawable(ContextCompat.getDrawable(this, R.drawable.ic_add_white));
-
-		RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) fabButton.getLayoutParams();
-
-		if (withBottomNavigationView) {
-			params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, 0);
-		} else {
-			params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
-		}
-
-		fabButton.setLayoutParams(params);
 		fabButton.show();
 	}
 
@@ -13777,7 +13088,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 		switch (drawerItem) {
 			case CLOUD_DRIVE:
-				updateFabPositionAndShow(true);
+				updateFabAndShow();
 				break;
 
 			case SHARED_ITEMS:
@@ -13795,7 +13106,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 							case MegaShare.ACCESS_OWNER:
 							case MegaShare.ACCESS_READWRITE:
 							case MegaShare.ACCESS_FULL:
-								updateFabPositionAndShow(true);
+								updateFabAndShow();
 								break;
 
 							case MegaShare.ACCESS_READ:
@@ -13810,7 +13121,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 						if (deepBrowserTreeOutgoing <= 0) {
 							hideFabButton();
 						} else {
-							updateFabPositionAndShow(true);
+							updateFabAndShow();
 						}
 						break;
 
@@ -13820,7 +13131,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 						if (deepBrowserTreeLinks <= 0) {
 							hideFabButton();
 						} else {
-							updateFabPositionAndShow(true);
+							updateFabAndShow();
 						}
 						break;
 
@@ -13833,7 +13144,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 				switch (getTabItemContacts()) {
 					case CONTACTS_TAB:
 					case SENT_REQUESTS_TAB:
-						updateFabPositionAndShow(false);
+						updateFabAndShow();
 						break;
 
 					default:
@@ -13847,55 +13158,11 @@ public class ManagerActivityLollipop extends SorterContentActivity
 					break;
 				}
 
-				updateFabPositionAndShow(true);
+				updateFabAndShow();
 				break;
 
 			default:
 				hideFabButton();
-		}
-	}
-
-	public void openAdvancedDevices (long handleToDownload, boolean highPriority){
-		logDebug("openAdvancedDevices");
-//		handleToDownload = handle;
-		String externalPath = getExternalCardPath();
-
-		if(externalPath!=null){
-			MegaNode node = megaApi.getNodeByHandle(handleToDownload);
-			if(node!=null){
-
-//				File newFile =  new File(externalPath+"/"+node.getName());
-				File newFile =  new File(node.getName());
-				Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-
-				// Filter to only show results that can be "opened", such as
-				// a file (as opposed to a list of contacts or timezones).
-				intent.addCategory(Intent.CATEGORY_OPENABLE);
-
-				// Create a file with the requested MIME type.
-				String mimeType = MimeTypeList.getMimeType(newFile);
-				logDebug("Mimetype: " + mimeType);
-				intent.setType(mimeType);
-				intent.putExtra(Intent.EXTRA_TITLE, node.getName());
-				intent.putExtra("handleToDownload", handleToDownload);
-				intent.putExtra(HIGH_PRIORITY_TRANSFER, highPriority);
-
-				try{
-					startActivityForResult(intent, WRITE_SD_CARD_REQUEST_CODE);
-				}
-				catch(Exception e){
-					logError("Exception in External SDCARD", e);
-					Environment.getExternalStorageDirectory();
-					Toast toast = Toast.makeText(this, getString(R.string.no_external_SD_card_detected), Toast.LENGTH_LONG);
-					toast.show();
-				}
-			}
-		}
-		else{
-			logWarning("No external SD card");
-			Environment.getExternalStorageDirectory();
-			Toast toast = Toast.makeText(this, getString(R.string.no_external_SD_card_detected), Toast.LENGTH_LONG);
-			toast.show();
 		}
 	}
 
@@ -13951,10 +13218,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 	public MegaOffline getSelectedOfflineNode() {
 		return selectedOfflineNode;
-	}
-
-	public void visibilitySearch(boolean visibility){
-		searchByDate.setVisible(visibility);
 	}
 
 	public void setSelectedAccountType(int selectedAccountType) {
@@ -14122,17 +13385,22 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		// elevation in this case, a crack would appear between toolbar and ChatRecentFragment's Appbarlayout, for example.
 		float elevation = getResources().getDimension(R.dimen.toolbar_elevation);
 		int toolbarElevationColor = ColorUtils.getColorForElevation(this, elevation);
+		int transparentColor = ContextCompat.getColor(this, android.R.color.transparent);
 		boolean onlySetToolbar = Util.isDarkMode(this) && !mShowAnyTabLayout;
+		boolean enableCUVisible = cuLayout.getVisibility() == View.VISIBLE;
 
 		if (mElevationCause > 0) {
 			if (onlySetToolbar) {
 				toolbar.setBackgroundColor(toolbarElevationColor);
+				if (enableCUVisible) cuLayout.setBackgroundColor(toolbarElevationColor);
 			} else {
-				toolbar.setBackgroundColor(android.R.color.transparent);
+				toolbar.setBackgroundColor(transparentColor);
+				if (enableCUVisible) cuLayout.setBackground(null);
 				abL.setElevation(elevation);
 			}
 		} else {
-			toolbar.setBackgroundColor(android.R.color.transparent);
+			toolbar.setBackgroundColor(transparentColor);
+			if (enableCUVisible) cuLayout.setBackground(null);
 			abL.setElevation(0);
 		}
 
@@ -14250,103 +13518,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		callBadge.setVisibility(View.VISIBLE);
 	}
 
-	public void showEvaluatedAppDialog(){
-		LayoutInflater inflater = getLayoutInflater();
-		View dialoglayout = inflater.inflate(R.layout.evaluate_the_app_dialog, null);
-
-		final CheckedTextView rateAppCheck = (CheckedTextView) dialoglayout.findViewById(R.id.rate_the_app);
-		rateAppCheck.setText(getString(R.string.rate_the_app_panel));
-		rateAppCheck.setTextSize(TypedValue.COMPLEX_UNIT_SP, (16*scaleText));
-		rateAppCheck.setCompoundDrawablePadding(scaleWidthPx(10, outMetrics));
-		ViewGroup.MarginLayoutParams rateAppMLP = (ViewGroup.MarginLayoutParams) rateAppCheck.getLayoutParams();
-		rateAppMLP.setMargins(scaleWidthPx(15, outMetrics), scaleHeightPx(10, outMetrics), 0, scaleHeightPx(10, outMetrics));
-
-		final CheckedTextView sendFeedbackCheck = (CheckedTextView) dialoglayout.findViewById(R.id.send_feedback);
-		sendFeedbackCheck.setText(getString(R.string.send_feedback_panel));
-		sendFeedbackCheck.setTextSize(TypedValue.COMPLEX_UNIT_SP, (16*scaleText));
-		sendFeedbackCheck.setCompoundDrawablePadding(scaleWidthPx(10, outMetrics));
-		ViewGroup.MarginLayoutParams sendFeedbackMLP = (ViewGroup.MarginLayoutParams) sendFeedbackCheck.getLayoutParams();
-		sendFeedbackMLP.setMargins(scaleWidthPx(15, outMetrics), scaleHeightPx(10, outMetrics), 0, scaleHeightPx(10, outMetrics));
-
-		MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this);
-		builder.setView(dialoglayout);
-
-		builder.setTitle(getString(R.string.title_evaluate_the_app_panel));
-		evaluateAppDialog = builder.create();
-
-		evaluateAppDialog.show();
-
-		rateAppCheck.setOnClickListener(v -> {
-			logDebug("Rate the app");
-			//Rate the app option:
-			startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(RATE_APP_URL) ) );
-
-			if (evaluateAppDialog!= null){
-				evaluateAppDialog.dismiss();
-			}
-		});
-
-		sendFeedbackCheck.setOnClickListener(new View.OnClickListener() {
-
-			@Override
-			public void onClick(View v) {
-				logDebug("Send Feedback");
-
-				//Send feedback option:
-				StringBuilder body = new StringBuilder();
-				body.append(getString(R.string.setting_feedback_body));
-				body.append("\n\n\n\n\n\n\n\n\n\n\n");
-				body.append(getString(R.string.settings_feedback_body_device_model)+"  "+getDeviceName()+"\n");
-				body.append(getString(R.string.settings_feedback_body_android_version)+"  "+Build.VERSION.RELEASE+" "+Build.DISPLAY+"\n");
-				body.append(getString(R.string.user_account_feedback)+"  "+megaApi.getMyEmail());
-
-				if(((MegaApplication) getApplication()).getMyAccountInfo()!=null){
-					if(((MegaApplication) getApplication()).getMyAccountInfo().getAccountType()<0||((MegaApplication) getApplication()).getMyAccountInfo().getAccountType()>4){
-						body.append(" ("+getString(R.string.my_account_free)+")");
-					}
-					else{
-						switch(((MegaApplication) getApplication()).getMyAccountInfo().getAccountType()){
-							case 0:{
-								body.append(" ("+getString(R.string.my_account_free)+")");
-								break;
-							}
-							case 1:{
-								body.append(" ("+getString(R.string.my_account_pro1)+")");
-								break;
-							}
-							case 2:{
-								body.append(" ("+getString(R.string.my_account_pro2)+")");
-								break;
-							}
-							case 3:{
-								body.append(" ("+getString(R.string.my_account_pro3)+")");
-								break;
-							}
-							case 4:{
-								body.append(" ("+getString(R.string.my_account_prolite_feedback_email)+")");
-								break;
-							}
-						}
-					}
-				}
-
-				String emailAndroid = MAIL_ANDROID;
-				String versionApp = (getString(R.string.app_version));
-				String subject = getString(R.string.setting_feedback_subject)+" v"+versionApp;
-
-				Intent emailIntent = new Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:" + emailAndroid));
-				emailIntent.putExtra(Intent.EXTRA_SUBJECT, subject);
-				emailIntent.putExtra(Intent.EXTRA_TEXT, body.toString());
-				startActivity(Intent.createChooser(emailIntent, " "));
-
-				if (evaluateAppDialog != null){
-					evaluateAppDialog.dismiss();
-				}
-			}
-		});
-
-	}
-
 	public String getDeviceName() {
 		String manufacturer = Build.MANUFACTURER;
 		String model = Build.MODEL;
@@ -14386,10 +13557,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		return is2FAEnabled;
 	}
 
-	public void setNewMail (String newMail) {
-		this.newMail = newMail;
-	}
-
 	//need to check image existence before use due to android content provider issue.
 	//Can not check query count - still get count = 1 even file does not exist
 	private boolean checkProfileImageExistence(Uri uri){
@@ -14410,22 +13577,90 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		return isFileExist;
 	}
 
+	/**
+	 * Sets or removes the layout behaviour to hide the bottom view when scrolling.
+	 *
+	 * @param enable True if should set the behaviour, false if should remove it.
+	 */
+	public void enableHideBottomViewOnScroll(boolean enable) {
+		LinearLayout layout = findViewById(R.id.container_bottom);
+		if (layout == null) {
+			return;
+		}
+
+		final CoordinatorLayout.LayoutParams fParams
+				= new CoordinatorLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+		fParams.setMargins(0, 0, 0, enable ? 0 : getResources().getDimensionPixelSize(R.dimen.bottom_navigation_view_height));
+		fragmentLayout.setLayoutParams(fParams);
+
+		CoordinatorLayout.LayoutParams params = (CoordinatorLayout.LayoutParams) layout.getLayoutParams();
+		params.setBehavior(enable ? new CustomHideBottomViewOnScrollBehaviour<LinearLayout>() : null);
+		layout.setLayoutParams(params);
+	}
+
+	/**
+	 * Shows all the content of bottom view.
+	 */
+	public void showBottomView() {
+		LinearLayout bottomView = findViewById(R.id.container_bottom);
+		if (bottomView == null || fragmentLayout == null) {
+			return;
+		}
+
+		CoordinatorLayout.LayoutParams params = (CoordinatorLayout.LayoutParams) fragmentLayout.getLayoutParams();
+		params.setMargins(0, 0, 0,
+				getResources().getDimensionPixelSize(R.dimen.bottom_navigation_view_height));
+		bottomView.animate().translationY(0).setDuration(175)
+				.withStartAction(() -> bottomView.setVisibility(View.VISIBLE))
+				.withEndAction(() -> fragmentLayout.setLayoutParams(params)).start();
+	}
+
+	/**
+	 * Shows or hides the bottom view and animates the transition.
+	 *
+	 * @param hide True if should hide it, false if should show it.
+	 */
+	public void animateBottomView(boolean hide) {
+		LinearLayout bottomView = findViewById(R.id.container_bottom);
+		if (bottomView == null || fragmentLayout == null) {
+			return;
+		}
+
+		CoordinatorLayout.LayoutParams params = (CoordinatorLayout.LayoutParams) fragmentLayout.getLayoutParams();
+
+		if (hide && bottomView.getVisibility() == View.VISIBLE) {
+			bottomView.animate().translationY(bottomView.getHeight()).setDuration(ANIMATION_DURATION)
+					.withStartAction(() -> params.bottomMargin = 0)
+					.withEndAction(() -> bottomView.setVisibility(View.GONE)).start();
+		} else if (!hide && bottomView.getVisibility() == View.GONE) {
+			int bottomMargin = getResources().getDimensionPixelSize(R.dimen.bottom_navigation_view_height);
+
+			bottomView.animate().translationY(0).setDuration(ANIMATION_DURATION)
+					.withStartAction(() -> bottomView.setVisibility(View.VISIBLE))
+					.withEndAction(() -> params.bottomMargin = bottomMargin)
+					.start();
+		}
+	}
+
 	public void showHideBottomNavigationView(boolean hide) {
 		if (bNV == null) return;
 
 		final CoordinatorLayout.LayoutParams params = new CoordinatorLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+		int height = getResources().getDimensionPixelSize(R.dimen.bottom_navigation_view_height);
 
 		if (hide && bNV.getVisibility() == View.VISIBLE) {
 			updateMiniAudioPlayerVisibility(false);
 			params.setMargins(0, 0, 0, 0);
 			fragmentLayout.setLayoutParams(params);
-			bNV.animate().translationY(220).setDuration(400L).withEndAction(() -> bNV.setVisibility(View.GONE)).start();
+			bNV.animate().translationY(height).setDuration(ANIMATION_DURATION).withEndAction(() ->
+				bNV.setVisibility(View.GONE)
+			).start();
 		} else if (!hide && bNV.getVisibility() == View.GONE) {
-			params.setMargins(0, 0, 0,
-					getResources().getDimensionPixelSize(R.dimen.bottom_navigation_view_height));
-			bNV.setVisibility(View.VISIBLE);
-			bNV.animate().translationY(0).setDuration(400L).withEndAction(() -> {
+			bNV.animate().translationY(0).setDuration(ANIMATION_DURATION).withStartAction(() ->
+				bNV.setVisibility(View.VISIBLE)
+			).withEndAction(() -> {
 				updateMiniAudioPlayerVisibility(true);
+				params.setMargins(0, 0, 0, height);
 				fragmentLayout.setLayoutParams(params);
 			}).start();
 		}
@@ -14624,6 +13859,10 @@ public class ManagerActivityLollipop extends SorterContentActivity
 		}
 
 		showCallLayout(this, callInProgressLayout, callInProgressChrono, callInProgressText);
+		MegaChatCall callInProgress = getCallInProgress();
+		if (callInProgress != null) {
+			showHideMicroAndVideoIcons(callInProgress, microOffLayout, videoOnLayout);
+		}
 	}
 
     public void homepageToSearch() {
@@ -14641,6 +13880,7 @@ public class ManagerActivityLollipop extends SorterContentActivity
 
 	public void setSearchQuery(String searchQuery) {
 		this.searchQuery = searchQuery;
+		this.searchView.setQuery(searchQuery, false);
 	}
 
 	public long getParentHandleIncoming() {
@@ -14817,17 +14057,13 @@ public class ManagerActivityLollipop extends SorterContentActivity
         RelativeLayout transfersWidgetLayout = findViewById(R.id.transfers_widget_layout);
         if (transfersWidgetLayout == null) return;
 
-        RelativeLayout.LayoutParams params = (RelativeLayout.LayoutParams) transfersWidgetLayout.getLayoutParams();
+        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) transfersWidgetLayout.getLayoutParams();
+        params.gravity = Gravity.END;
 
-        if (bNVHidden) {
-            params.bottomMargin = 0;
-            params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
-        } else if (drawerItem == DrawerItem.HOMEPAGE && mHomepageScreen == HomepageScreen.HOMEPAGE) {
+        if (!bNVHidden && drawerItem == DrawerItem.HOMEPAGE && mHomepageScreen == HomepageScreen.HOMEPAGE) {
             params.bottomMargin = Util.dp2px(TRANSFER_WIDGET_MARGIN_BOTTOM, outMetrics);
-            params.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
         } else {
             params.bottomMargin = 0;
-            params.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM, 0);
         }
 
         transfersWidgetLayout.setLayoutParams(params);
@@ -14881,11 +14117,6 @@ public class ManagerActivityLollipop extends SorterContentActivity
 	private CameraUploadsFragment getCameraUploadFragment() {
 		return cuFragment = (CameraUploadsFragment) getSupportFragmentManager()
 				.findFragmentByTag(FragmentTag.CAMERA_UPLOADS.getTag());
-	}
-
-	private CameraUploadsFragment getMediaUploadFragment() {
-		return muFragment = (CameraUploadsFragment) getSupportFragmentManager()
-				.findFragmentByTag(FragmentTag.MEDIA_UPLOADS.getTag());
 	}
 
 	private InboxFragmentLollipop getInboxFragment() {

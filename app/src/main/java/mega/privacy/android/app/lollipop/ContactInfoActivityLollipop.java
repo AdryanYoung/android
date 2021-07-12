@@ -66,6 +66,7 @@ import mega.privacy.android.app.activities.ManageChatHistoryActivity;
 import mega.privacy.android.app.MegaApplication;
 import mega.privacy.android.app.MegaContactDB;
 import mega.privacy.android.app.R;
+import mega.privacy.android.app.activities.PasscodeActivity;
 import mega.privacy.android.app.components.AppBarStateChangeListener;
 import mega.privacy.android.app.components.MarqueeTextView;
 import mega.privacy.android.app.components.attacher.MegaAttacher;
@@ -123,6 +124,7 @@ import static mega.privacy.android.app.utils.ChatUtil.*;
 import static mega.privacy.android.app.utils.LogUtil.*;
 import static mega.privacy.android.app.utils.MegaApiUtils.getDescription;
 import static mega.privacy.android.app.utils.ProgressDialogUtil.*;
+import static mega.privacy.android.app.utils.StringResourcesUtils.getQuantityString;
 import static mega.privacy.android.app.utils.TimeUtils.*;
 import static mega.privacy.android.app.utils.Util.*;
 import static mega.privacy.android.app.utils.Constants.*;
@@ -136,7 +138,8 @@ import static nz.mega.sdk.MegaChatApiJava.MEGACHAT_INVALID_HANDLE;
 import mega.privacy.android.app.components.AppBarStateChangeListener.State;
 
 @SuppressLint("NewApi")
-public class ContactInfoActivityLollipop extends PinActivityLollipop
+
+public class ContactInfoActivityLollipop extends PasscodeActivity
 		implements MegaChatRequestListenerInterface, OnClickListener,
 		MegaRequestListenerInterface, MegaChatListenerInterface, OnItemClickListener,
 		MegaGlobalListenerInterface, ActionNodeCallback, SnackbarShower {
@@ -261,6 +264,8 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
 	private RelativeLayout callInProgressLayout;
 	private Chronometer callInProgressChrono;
 	private TextView callInProgressText;
+	private LinearLayout microOffLayout;
+	private LinearLayout videoOnLayout;
 
 	private BroadcastReceiver manageShareReceiver = new BroadcastReceiver() {
 		@Override
@@ -305,9 +310,9 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
 			if (intent == null || intent.getAction() == null)
 				return;
 
-			if (intent.getAction().equals(ACTION_CALL_STATUS_UPDATE)) {
-				long chatIdReceived = intent.getLongExtra(UPDATE_CHAT_CALL_ID, MEGACHAT_INVALID_HANDLE);
+			long chatIdReceived = intent.getLongExtra(UPDATE_CHAT_CALL_ID, INVALID_HANDLE);
 
+			if (intent.getAction().equals(ACTION_CALL_STATUS_UPDATE)) {
 				if (chatIdReceived == MEGACHAT_INVALID_HANDLE)
 					return;
 
@@ -327,11 +332,17 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
 			}
 
 			if (intent.getAction().equals(ACTION_CHANGE_CALL_ON_HOLD)) {
-				long chatIdReceived = intent.getLongExtra(UPDATE_CHAT_CALL_ID, INVALID_HANDLE);
 				if (chatIdReceived == MEGACHAT_INVALID_HANDLE)
 					return;
 
 				checkScreenRotationToShowCall();
+			}
+
+			if (intent.getAction().equals(ACTION_CHANGE_LOCAL_AVFLAGS)) {
+				MegaChatCall callInProgress = getCallInProgress();
+				if (callInProgress != null && callInProgress.getChatid() == chatIdReceived) {
+					showHideMicroAndVideoIcons(callInProgress, microOffLayout, videoOnLayout);
+				}
 			}
 		}
 	};
@@ -522,6 +533,8 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
 			callInProgressLayout.setOnClickListener(this);
 			callInProgressChrono = findViewById(R.id.call_in_progress_chrono);
 			callInProgressText = findViewById(R.id.call_in_progress_text);
+			microOffLayout = findViewById(R.id.micro_off_layout);
+			videoOnLayout = findViewById(R.id.video_on_layout);
 			callInProgressLayout.setVisibility(View.GONE);
 
 			//OPTIONS LAYOUT
@@ -644,6 +657,8 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
 
 			if(isOnline(this)){
 				logDebug("online -- network connection");
+				setAvatar();
+
 				if(user!=null){
 					sharedFoldersLayout.setVisibility(View.VISIBLE);
 					dividerSharedFoldersLayout.setVisibility(View.VISIBLE);
@@ -714,6 +729,7 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
 
 		IntentFilter filterCall = new IntentFilter(ACTION_CALL_STATUS_UPDATE);
 		filterCall.addAction(ACTION_CHANGE_CALL_ON_HOLD);
+		filterCall.addAction(ACTION_CHANGE_LOCAL_AVFLAGS);
 		registerReceiver(chatCallUpdateReceiver, filterCall);
 
 		registerReceiver(chatSessionUpdateReceiver,
@@ -2035,7 +2051,7 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
     
     private void setFoldersButtonText(ArrayList<MegaNode> nodes){
 		if (nodes != null) {
-			sharedFoldersButton.setText(getDescription(nodes));
+			sharedFoldersButton.setText(getQuantityString(R.plurals.num_folders_with_parameter, nodes.size(), nodes.size()));
 			if (nodes.size() == 0) {
 				sharedFoldersButton.setClickable(false);
 				sharedFoldersLayout.setClickable(false);
@@ -2199,6 +2215,10 @@ public class ContactInfoActivityLollipop extends PinActivityLollipop
 		}
 
 		showCallLayout(this, callInProgressLayout, callInProgressChrono, callInProgressText);
+		MegaChatCall callInProgress = getCallInProgress();
+		if (callInProgress != null) {
+			showHideMicroAndVideoIcons(callInProgress, microOffLayout, videoOnLayout);
+		}
 	}
 
 	@Override

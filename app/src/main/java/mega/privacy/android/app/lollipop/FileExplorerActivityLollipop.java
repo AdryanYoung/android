@@ -8,6 +8,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import com.google.android.material.appbar.AppBarLayout;
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
 import com.google.android.material.tabs.TabLayout;
 
@@ -43,14 +44,16 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 
+import dagger.hilt.android.AndroidEntryPoint;
 import kotlin.Unit;
 import mega.privacy.android.app.DatabaseHandler;
 import mega.privacy.android.app.MegaApplication;
 import mega.privacy.android.app.MegaPreferences;
 import mega.privacy.android.app.R;
 import mega.privacy.android.app.ShareInfo;
-import mega.privacy.android.app.SorterContentActivity;
+import mega.privacy.android.app.TransfersManagementActivity;
 import mega.privacy.android.app.UploadService;
 import mega.privacy.android.app.UserCredentials;
 import mega.privacy.android.app.interfaces.ActionNodeCallback;
@@ -68,7 +71,9 @@ import mega.privacy.android.app.lollipop.megachat.ChatSettings;
 import mega.privacy.android.app.lollipop.megachat.ChatUploadService;
 import mega.privacy.android.app.lollipop.megachat.PendingMessageSingle;
 import mega.privacy.android.app.lollipop.tasks.FilePrepareTask;
+import mega.privacy.android.app.modalbottomsheet.SortByBottomSheetDialogFragment;
 import mega.privacy.android.app.utils.ColorUtils;
+import mega.privacy.android.app.utils.StringResourcesUtils;
 import mega.privacy.android.app.utils.Util;
 import nz.mega.sdk.MegaApiAndroid;
 import nz.mega.sdk.MegaApiJava;
@@ -95,6 +100,7 @@ import nz.mega.sdk.MegaUser;
 import nz.mega.sdk.MegaUserAlert;
 
 import static android.webkit.URLUtil.*;
+import static mega.privacy.android.app.modalbottomsheet.ModalBottomSheetUtil.isBottomSheetDialogShown;
 import static mega.privacy.android.app.utils.AlertsAndWarnings.showOverDiskQuotaPaywallWarning;
 import static mega.privacy.android.app.utils.ChatUtil.createAttachmentPendingMessage;
 import static mega.privacy.android.app.utils.ColorUtils.tintIcon;
@@ -105,13 +111,15 @@ import static mega.privacy.android.app.utils.MegaNodeDialogUtil.showNewFileDialo
 import static mega.privacy.android.app.utils.MegaNodeDialogUtil.showNewFolderDialog;
 import static mega.privacy.android.app.utils.MegaNodeDialogUtil.showNewURLFileDialog;
 import static mega.privacy.android.app.utils.MegaNodeUtil.*;
+import static mega.privacy.android.app.utils.StringResourcesUtils.getQuantityString;
 import static mega.privacy.android.app.utils.ThumbnailUtils.*;
 import static mega.privacy.android.app.utils.TimeUtils.*;
 import static mega.privacy.android.app.utils.Util.*;
 import static nz.mega.sdk.MegaApiJava.INVALID_HANDLE;
 import static nz.mega.sdk.MegaApiJava.STORAGE_STATE_PAYWALL;
 
-public class FileExplorerActivityLollipop extends SorterContentActivity
+@AndroidEntryPoint
+public class FileExplorerActivityLollipop extends TransfersManagementActivity
 		implements MegaRequestListenerInterface, MegaGlobalListenerInterface,
 		MegaChatRequestListenerInterface, View.OnClickListener, MegaChatListenerInterface,
 		ActionNodeCallback, SnackbarShower {
@@ -127,6 +135,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
     public static final String EXTRA_SHARE_INFOS = "share_infos";
     public static final String EXTRA_SHARE_ACTION = "share_action";
     public static final String EXTRA_SHARE_TYPE = "share_type";
+    public static final String EXTRA_PARENT_HANDLE = "parent_handle";
 
 	public static String ACTION_PROCESSED = "CreateLink.ACTION_PROCESSED";
 	
@@ -138,6 +147,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 	public static String ACTION_MULTISELECT_FILE = "ACTION_MULTISELECT_FILE";
 	public static String ACTION_UPLOAD_TO_CLOUD = "ACTION_UPLOAD_TO_CLOUD";
 	public static String ACTION_UPLOAD_TO_CHAT = "ACTION_UPLOAD_TO_CHAT";
+	public static String ACTION_SAVE_TO_CLOUD = "ACTION_SAVE_TO_CLOUD";
 
 	public static final int UPLOAD = 0;
 	public static final int MOVE = 1;
@@ -147,6 +157,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 	public static final int SELECT = 5;
 	public static final int SELECT_CAMERA_FOLDER = 7;
 	public static final int SHARE_LINK = 8;
+	public static final int SAVE = 9;
 
 	private static final int NO_TABS = -1;
 	private static final int CLOUD_TAB = 0;
@@ -261,6 +272,8 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 	private boolean shouldRestartSearch;
 	private String queryAfterSearch;
 	private String currentAction;
+
+	private BottomSheetDialogFragment bottomSheetDialogFragment;
 
 	@Override
 	public void onRequestStart(MegaChatApiJava api, MegaChatRequest request) {
@@ -472,7 +485,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
             needLogin = true;
             OwnFilePrepareTask ownFilePrepareTask = new OwnFilePrepareTask(this);
             ownFilePrepareTask.execute(getIntent());
-            createAndShowProgressDialog(false, R.string.upload_prepare);
+            createAndShowProgressDialog(false, getQuantityString(R.plurals.upload_prepare, 1));
 			return;
 		}
 		else{
@@ -678,6 +691,17 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 				setView(CLOUD_TAB, false, -1);
 				tabShown=NO_TABS;
 			}
+			else if ((intent.getAction().equals(ACTION_SAVE_TO_CLOUD))){
+				logDebug("action = SAVE to Cloud Drive");
+				mode = SAVE;
+				selectFile = false;
+				parentHandleCloud = intent.getLongExtra(EXTRA_PARENT_HANDLE, INVALID_HANDLE);
+
+				aB.setTitle(StringResourcesUtils.getString(R.string.section_cloud_drive));
+				aB.setSubtitle(StringResourcesUtils.getString(R.string.cloud_drive_select_destination));
+				setView(CLOUD_TAB, false, -1);
+				tabShown=NO_TABS;
+			}
 			else{
 				logDebug("action = UPLOAD");
 				mode = UPLOAD;
@@ -705,7 +729,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 					cloudDriveFrameLayout = (FrameLayout) findViewById(R.id.cloudDriveFrameLayout);
 					OwnFilePrepareTask ownFilePrepareTask = new OwnFilePrepareTask(this);
 					ownFilePrepareTask.execute(getIntent());
-					createAndShowProgressDialog(false, R.string.upload_prepare);
+					createAndShowProgressDialog(false, getQuantityString(R.plurals.upload_prepare, 1));
 
 					cloudDriveFrameLayout.setVisibility(View.VISIBLE);
 
@@ -1237,6 +1261,9 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 		else if(mode == UPLOAD && !importFileF){
 			aB.setTitle(getString(R.string.title_file_explorer_send_link).toUpperCase());
 		}
+		else if(mode == SAVE){
+			aB.setTitle(StringResourcesUtils.getString(R.string.section_cloud_drive).toUpperCase());
+		}
 		else if (mode == UPLOAD && importFileF) {
 			if (importFragmentSelected == -1) {
 				return;
@@ -1268,7 +1295,11 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 		cDriveExplorer = getCloudExplorerFragment();
 		iSharesExplorer = getIncomingExplorerFragment();
 
-		aB.setSubtitle(null);
+		if (mode == SAVE) {
+			aB.setSubtitle(StringResourcesUtils.getString(R.string.cloud_drive_select_destination));
+		} else {
+			aB.setSubtitle(null);
+		}
 
 		if(tabShown==NO_TABS){
 			if (importFileF) {
@@ -1447,13 +1478,14 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 		if (getIntent() != null && mode == UPLOAD && folderSelected && filePreparedInfos == null) {
 			OwnFilePrepareTask ownFilePrepareTask = new OwnFilePrepareTask(this);
 			ownFilePrepareTask.execute(getIntent());
-			createAndShowProgressDialog(false, R.string.upload_prepare);
+			createAndShowProgressDialog(false, getQuantityString(R.plurals.upload_prepare, 1));
 		}
 	}
 	
 	@Override
 	public void onBackPressed() {
 		logDebug("tabShown: " + tabShown);
+		if (psaWebBrowser.consumeBack()) return;
 		retryConnectionsAndSignalPresence();
 
 		cDriveExplorer = getCloudExplorerFragment();
@@ -1737,16 +1769,21 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 		finishActivity();
     }
 
-	private void createAndShowProgressDialog (boolean cancelable, int string) {
-		ProgressDialog temp = null;
-		try{
+	/**
+	 * Method to create and show a progress dialog
+	 * @param cancelable Flag to set if the progress dialog is cancelable or not
+	 * @param message Message to display into the progress dialog
+	 */
+	private void createAndShowProgressDialog(boolean cancelable, String message) {
+		ProgressDialog temp;
+		try {
 			temp = new ProgressDialog(this);
-			temp.setMessage(getString(string));
+			temp.setMessage(message);
 			temp.setCancelable(cancelable);
 			temp.setCanceledOnTouchOutside(cancelable);
 			temp.show();
-		}
-		catch(Exception e){
+		} catch (Exception e) {
+			logWarning("Error creating and showing progress dialog.", e);
 			return;
 		}
 		statusDialog = temp;
@@ -1796,7 +1833,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 			logDebug("finish!");
 			finishActivity();
 		}
-		else if (mode == UPLOAD){
+		else if (mode == UPLOAD || mode == SAVE){
 
 			logDebug("mode UPLOAD");
 
@@ -1855,7 +1892,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 			if (filePreparedInfos == null){
 				OwnFilePrepareTask ownFilePrepareTask = new OwnFilePrepareTask(this);
 				ownFilePrepareTask.execute(getIntent());
-				createAndShowProgressDialog(false, R.string.upload_prepare);
+				createAndShowProgressDialog(false, getQuantityString(R.plurals.upload_prepare, 1));
 			}
 			else{
 				onIntentProcessed();
@@ -2314,7 +2351,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 				break;
 			}
 			case R.id.cab_menu_sort:{
-				showSortOptions(fileExplorerActivityLollipop, outMetrics);
+				showSortByPanel();
 				break;
 			}
 		}
@@ -2415,7 +2452,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 		ArrayList<MegaChatRoom> chats = new ArrayList<>();
 		ArrayList<MegaUser> users = new ArrayList<>();
 
-		createAndShowProgressDialog(true, R.string.preparing_chats);
+		createAndShowProgressDialog(true, StringResourcesUtils.getString(R.string.preparing_chats));
 
 		for (ChatExplorerListItem item : listItems) {
 			if (item.getChat() != null) {
@@ -2550,7 +2587,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 				if (filePreparedInfos == null){
 					FilePrepareTask filePrepareTask = new FilePrepareTask(this);
 					filePrepareTask.execute(getIntent());
-					createAndShowProgressDialog(false, R.string.upload_prepare);
+					createAndShowProgressDialog(false, getQuantityString(R.plurals.upload_prepare, 1));
 				}
 				else{
                     onIntentChatProcessed(filePreparedInfos);
@@ -2561,7 +2598,7 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 			if (filePreparedInfos == null){
 				FilePrepareTask filePrepareTask = new FilePrepareTask(this);
 				filePrepareTask.execute(getIntent());
-				createAndShowProgressDialog(false, R.string.upload_prepare);
+				createAndShowProgressDialog(false, getQuantityString(R.plurals.upload_prepare, 1));
 			}
 			else{
 				onIntentChatProcessed(filePreparedInfos);
@@ -2947,5 +2984,21 @@ public class FileExplorerActivityLollipop extends SorterContentActivity
 
 		// If no tab should be shown, keep hide.
 		tabLayoutExplorer.setVisibility(hide || (tabShown == NO_TABS) ? View.GONE : View.VISIBLE);
+	}
+
+	public void showSortByPanel() {
+		if (isBottomSheetDialogShown(bottomSheetDialogFragment)) {
+			return;
+		}
+
+		if (getIncomingExplorerFragment() != null && deepBrowserTree == 0
+				&& viewPagerExplorer != null && viewPagerExplorer.getCurrentItem() == INCOMING_TAB) {
+			bottomSheetDialogFragment = SortByBottomSheetDialogFragment.newInstance(ORDER_OTHERS, true);
+		} else {
+			bottomSheetDialogFragment = SortByBottomSheetDialogFragment.newInstance(ORDER_CLOUD, false);
+		}
+
+		bottomSheetDialogFragment.show(getSupportFragmentManager(),
+				bottomSheetDialogFragment.getTag());
 	}
 }

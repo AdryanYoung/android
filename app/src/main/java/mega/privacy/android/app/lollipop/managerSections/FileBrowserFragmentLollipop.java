@@ -52,6 +52,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Stack;
 
+import javax.inject.Inject;
+
+import dagger.hilt.android.AndroidEntryPoint;
 import mega.privacy.android.app.DatabaseHandler;
 import mega.privacy.android.app.MegaApplication;
 import mega.privacy.android.app.MegaPreferences;
@@ -61,6 +64,7 @@ import mega.privacy.android.app.components.CustomizedGridLayoutManager;
 import mega.privacy.android.app.components.NewGridRecyclerView;
 import mega.privacy.android.app.components.NewHeaderItemDecoration;
 import mega.privacy.android.app.components.scrollBar.FastScroller;
+import mega.privacy.android.app.globalmanagement.SortOrderManagement;
 import mega.privacy.android.app.lollipop.FullScreenImageViewerLollipop;
 import mega.privacy.android.app.lollipop.ManagerActivityLollipop;
 import mega.privacy.android.app.lollipop.PdfViewerActivityLollipop;
@@ -81,10 +85,15 @@ import static mega.privacy.android.app.utils.Constants.*;
 import static mega.privacy.android.app.utils.FileUtil.*;
 import static mega.privacy.android.app.utils.LogUtil.*;
 import static mega.privacy.android.app.utils.MegaApiUtils.*;
+import static mega.privacy.android.app.utils.MegaNodeUtil.manageTextFileIntent;
 import static mega.privacy.android.app.utils.TimeUtils.*;
 import static mega.privacy.android.app.utils.Util.*;
 
+@AndroidEntryPoint
 public class FileBrowserFragmentLollipop extends RotatableFragment{
+
+	@Inject
+	SortOrderManagement sortOrderManagement;
 
 	Context context;
 	ActionBar aB;
@@ -273,6 +282,12 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 				case R.id.cab_menu_remove_share:
 					((ManagerActivityLollipop) context).showConfirmationRemoveAllSharingContacts(documents);
 					break;
+
+				case R.id.cab_menu_save_gallery:
+					((ManagerActivityLollipop) context).saveNodesToGallery(adapter.getArrayListSelectedNodes());
+					clearSelections();
+					hideMultipleSelect();
+					break;
 			}
 			return true;
 		}
@@ -333,10 +348,16 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 			boolean showShareFolder = true;
 			boolean showTrash = true;
 			boolean showRemoveShare = true;
+			int mediaCounter = 0;
 
 			for (MegaNode node : selected) {
 				if (!node.isFile()) {
 					showSendToChat = false;
+				} else {
+					MimeTypeList nodeMime = MimeTypeList.typeForName(node.getName());
+					if (nodeMime.isImage() || nodeMime.isVideo()) {
+						mediaCounter++;
+					}
 				}
 				if (!node.isFolder() || (MegaNodeUtil.isOutShare(node) && selected.size() > 1)) {
 					showShareFolder = false;
@@ -365,10 +386,17 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 				control.removeShare().setVisible(true);
 			}
 
+			if (mediaCounter == selected.size()) {
+				control.saveToGallery().setVisible(true)
+						.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+			} else {
+				control.saveToGallery().setVisible(false);
+			}
+
 			control.trash().setVisible(showTrash);
 
 			control.shareOut().setVisible(true)
-					.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+					.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM);
 
 			control.move().setVisible(true);
 			control.copy().setVisible(true);
@@ -456,11 +484,11 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 		if (((ManagerActivityLollipop) context).getParentHandleBrowser() == -1 || ((ManagerActivityLollipop) context).getParentHandleBrowser() == megaApi.getRootNode().getHandle()) {
 			logWarning("After consulting... the parent keeps -1 or ROOTNODE: " + ((ManagerActivityLollipop) context).getParentHandleBrowser());
 
-			nodes = megaApi.getChildren(megaApi.getRootNode(), ((ManagerActivityLollipop) context).orderCloud);
+			nodes = megaApi.getChildren(megaApi.getRootNode(), sortOrderManagement.getOrderCloud());
 		} else {
 			MegaNode parentNode = megaApi.getNodeByHandle(((ManagerActivityLollipop) context).getParentHandleBrowser());
 
-			nodes = megaApi.getChildren(parentNode, ((ManagerActivityLollipop) context).orderCloud);
+			nodes = megaApi.getChildren(parentNode, sortOrderManagement.getOrderCloud());
 		}
 		((ManagerActivityLollipop) context).setToolbarTitle();
 		((ManagerActivityLollipop) context).supportInvalidateOptionsMenu();
@@ -633,7 +661,7 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 				intent.putExtra("parentNodeHandle", megaApi.getParentNode(node).getHandle());
 			}
 
-			intent.putExtra("orderGetChildren", ((ManagerActivityLollipop) context).orderCloud);
+			intent.putExtra("orderGetChildren", sortOrderManagement.getOrderCloud());
 
 			intent.putExtra(INTENT_EXTRA_KEY_HANDLE, node.getHandle());
 			putThumbnailLocation(intent, recyclerView, position, VIEWER_FROM_FILE_BROWSER, adapter);
@@ -666,7 +694,7 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 			} else {
 				mediaIntent.putExtra("parentNodeHandle", megaApi.getParentNode(node).getHandle());
 			}
-			mediaIntent.putExtra("orderGetChildren", ((ManagerActivityLollipop) context).orderCloud);
+			mediaIntent.putExtra("orderGetChildren", sortOrderManagement.getOrderCloud());
 			mediaIntent.putExtra("adapterType", FILE_BROWSER_ADAPTER);
 			putThumbnailLocation(mediaIntent, recyclerView, position, VIEWER_FROM_FILE_BROWSER, adapter);
 
@@ -884,6 +912,8 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 						true, false, false, false);
 			}
 			((ManagerActivityLollipop) context).overridePendingTransition(0, 0);
+		} else if (MimeTypeList.typeForName(node.getName()).isOpenableTextFile(node.getSize())) {
+			manageTextFileIntent(context, node, FILE_BROWSER_ADAPTER);
 		} else {
 			logDebug("itemClick:isFile:otherOption");
 			((ManagerActivityLollipop) context).saveNodesToDevice(
@@ -943,89 +973,12 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 	}
 
 	public void setFolderInfoNavigation(MegaNode n){
-		logDebug("Node Handle: " + n.getHandle());
-		String cameraSyncHandle = null;
-        //Check if the item is the Camera Uploads folder
-        if (dbH.getPreferences() != null) {
-            prefs = dbH.getPreferences();
-            if (prefs.getCamSyncHandle() != null) {
-                cameraSyncHandle = prefs.getCamSyncHandle();
-            } else {
-                cameraSyncHandle = null;
-            }
-        } else {
-            prefs = null;
-        }
-        
-        if (cameraSyncHandle != null) {
-            if (!(cameraSyncHandle.equals(""))) {
-                if ((n.getHandle() == Long.parseLong(cameraSyncHandle))) {
-                    ((ManagerActivityLollipop)context).cameraUploadsClicked();
-                    return;
-                }
-            } else {
-                if (n.getName().equals(context.getString(R.string.section_photo_sync))) {
-                    if (prefs != null) {
-                        prefs.setCamSyncHandle(String.valueOf(n.getHandle()));
-                    }
-                    dbH.setCamSyncHandle(n.getHandle());
-					logDebug("FOUND Camera Uploads!!----> " + n.getHandle());
-                    ((ManagerActivityLollipop)context).cameraUploadsClicked();
-                    return;
-                }
-            }
-            
-        } else {
-            if (n.getName().equals(context.getString(R.string.section_photo_sync))) {
-                
-                if (prefs != null) {
-                    prefs.setCamSyncHandle(String.valueOf(n.getHandle()));
-                }
-                dbH.setCamSyncHandle(n.getHandle());
-				logDebug("FOUND Camera Uploads!!: " + n.getHandle());
-                ((ManagerActivityLollipop)context).cameraUploadsClicked();
-                return;
-            }
-        }
-        
-        //Check if the item is the Media Uploads folder
-        
-        String secondaryMediaHandle = null;
-        
-        if (prefs != null) {
-            if (prefs.getMegaHandleSecondaryFolder() != null) {
-                secondaryMediaHandle = prefs.getMegaHandleSecondaryFolder();
-            } else {
-                secondaryMediaHandle = null;
-            }
-        }
-        
-        if (secondaryMediaHandle != null) {
-            if (!(secondaryMediaHandle.equals(""))) {
-                if ((n.getHandle() == Long.parseLong(secondaryMediaHandle))) {
-					logDebug("Click on Media Uploads");
-                    ((ManagerActivityLollipop)context).secondaryMediaUploadsClicked();
-                    return;
-                }
-            }
-        } else {
-            if (n.getName().equals(context.getString(R.string.section_secondary_media_uploads))) {
-                if (prefs != null) {
-                    prefs.setMegaHandleSecondaryFolder(String.valueOf(n.getHandle()));
-                }
-                dbH.setSecondaryFolderHandle(n.getHandle());
-				logDebug("FOUND Media Uploads!!: " + n.getHandle());
-                ((ManagerActivityLollipop)context).secondaryMediaUploadsClicked();
-                return;
-            }
-        }
-        
         ((ManagerActivityLollipop)context).setParentHandleBrowser(n.getHandle());
 		((ManagerActivityLollipop)context).supportInvalidateOptionsMenu();
         ((ManagerActivityLollipop)context).setToolbarTitle();
         
         adapter.setParentHandle(((ManagerActivityLollipop)context).getParentHandleBrowser());
-        nodes = megaApi.getChildren(n,((ManagerActivityLollipop)context).orderCloud);
+        nodes = megaApi.getChildren(n, sortOrderManagement.getOrderCloud());
         addSectionTitle(nodes,adapter.getAdapterType());
         adapter.setNodes(nodes);
         recyclerView.scrollToPosition(0);
@@ -1209,7 +1162,7 @@ public class FileBrowserFragmentLollipop extends RotatableFragment{
 
 					((ManagerActivityLollipop)context).setToolbarTitle();
 
-					nodes = megaApi.getChildren(parentNode,((ManagerActivityLollipop)context).orderCloud);
+					nodes = megaApi.getChildren(parentNode, sortOrderManagement.getOrderCloud());
 					addSectionTitle(nodes,adapter.getAdapterType());
 					adapter.setNodes(nodes);
 
